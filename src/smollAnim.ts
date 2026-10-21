@@ -22,6 +22,17 @@ const STAND: Pose = clonePose(REST)
 // deitado de costas na cama: braços dobrados com as mãos na barriga
 const LYING: Pose = { ...clonePose(REST), L: limb([0.15, -0.95, 0.25], [-0.55, -0.45, 0.7]), R: limb([-0.15, -0.95, 0.25], [0.55, -0.45, 0.7]) }
 
+// sentado na quina da cama (pés quase no chão, mãos nos joelhos); bedPose mistura em pé → sentado (sit) → deitado (lie)
+const SIT_EDGE: Pose = {
+  ...clonePose(REST), ry: -0.12, lean: 0.12, hp: 0.08,
+  L: limb([0.12, -0.95, 0.2], [0.1, -0.6, 0.8], [0.1, -0.3, 0.9]), R: limb([-0.12, -0.95, 0.2], [-0.1, -0.6, 0.8], [-0.1, -0.3, 0.9]),
+  TL: [0.05, -0.75, 0.66], SL: [0.02, -1, -0.05], FL: [0, -0.1, 1],
+  TR: [-0.05, -0.75, 0.66], SR: [-0.02, -1, -0.05], FR: [0, -0.1, 1],
+}
+export function bedPose(sit: number, lie: number): Pose {
+  const p = clonePose(STAND); lerpPose(p, SIT_EDGE, sit); lerpPose(p, LYING, lie); return p
+}
+
 export type Clip = 'sip' | 'wave' | 'laugh' | 'point' | 'think' | 'shrug' | 'facepalm' | 'stretch' | 'dance' | 'thumbs' | 'scratch'
 const DUR: Record<Clip, number> = { sip: 3.2, wave: 2.6, laugh: 3.2, point: 2.6, think: 3.4, shrug: 2, facepalm: 2.4, stretch: 3.2, dance: 7, thumbs: 2.2, scratch: 2.6 }
 const NEEDS_STAND: Clip[] = ['dance']
@@ -84,7 +95,7 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
   mug.visible = false
   const api = {
     /** controlado pelo smoll.ts: andando até a cama/PC ou deitado */
-    loco: { walk: 0, lying: false },
+    loco: { walk: 0, lying: false, bed: null as null | { sit: number; lie: number } },
     get standing() { return standing },
     stand(on: boolean) { standing = on; clip = null },
     play(c: Clip) {
@@ -97,7 +108,7 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
       if (pending && (pendingAt -= dt) <= 0) { clip = pending; clipT = 0; pending = null }
       if (clip && (clipT += dt) > DUR[clip]) clip = null
       // levanta/senta sozinho: se ficar em pé e o jogador sumir, ele volta pro PC
-      const busy = api.loco.lying || api.loco.walk > 0.02
+      const busy = api.loco.lying || !!api.loco.bed || api.loco.walk > 0.02
       away = standing && dist > 6 && !busy ? away + dt : 0
       if (away > 6) { standing = false; away = 0 }
       // gestos aleatórios enquanto ninguém está falando com ele
@@ -105,7 +116,7 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
         idleT = 7 + Math.random() * 8
         api.play((['sip', 'think', 'stretch', 'scratch'] as Clip[])[Math.floor(Math.random() * 4)])
       }
-      const p = busy ? (api.loco.lying ? clonePose(LYING) : walkPose(REST, (walkPhase += dt * 5.5), 1, t)) : clonePose(standing ? STAND : SIT)
+      const p = busy ? (api.loco.bed ? bedPose(api.loco.bed.sit, api.loco.bed.lie) : api.loco.lying ? clonePose(LYING) : walkPose(REST, (walkPhase += dt * 5.5), 1, t)) : clonePose(standing ? STAND : SIT)
       if (api.loco.lying) p.lean += Math.sin(t * 1.6) * 0.012 // respira dormindo
       if (!busy && !standing && !clip) { // digitando
         p.L.f[1] += Math.sin(t * 13) * 0.05; p.R.f[1] += Math.sin(t * 11 + 1) * 0.05; p.L.h[1] += Math.sin(t * 17) * 0.08

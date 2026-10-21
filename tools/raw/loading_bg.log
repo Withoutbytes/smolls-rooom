@@ -1,0 +1,24 @@
+Reading prompt from stdin...
+OpenAI Codex v0.162.1
+--------
+workdir: C:\Users\mutecb\Documents\Projetos\smolls-rooom\tools\raw
+model: gpt-6-luna
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a1605c-69ad-7640-9006-d52c70e52a2d
+--------
+user
+Use your image generation tool to create exactly ONE image and nothing else (do not write code, do not edit files).
+
+A wide 16:9 cinematic loading-screen background illustration for a game called Smoll's Room, in the same hand-painted stylized cartoon art style as the attached character reference (rich colors, bold clean outlines, soft shading, lots of small details). Scene: a warm golden-hour sunset over a quiet street in Ariquemes, Rondonia, Brazil: a white brick house with a red clay-tile hip roof and a sliding gate, a big leafy mango tree full of ripe mangoes, red dirt road and sidewalks, concrete utility poles with tangled power lines, a caramel mutt dog sleeping on the sidewalk, a red motorcycle parked in the garage, string lights, orange-pink sky with soft clouds and a few birds. Keep the CENTER of the image calm and slightly darker (empty space) because a character and a progress bar will be placed over it. No people, no text, no letters, no logos, no border.
+
+codex
+I’m generating the single 16:9 background using the attached character art as a style reference.
+codex
+
+tokens used
+9.390
+

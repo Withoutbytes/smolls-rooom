@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smoll — skins 3D</title>
+<style>
+  :root { --bg:#121316; --fg:#e8e6e1; --mut:#8f8c85; --line:#26282d; --red:#d1233c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui, sans-serif; }
+  .wrap { display:grid; grid-template-columns:320px 1fr; height:100vh; }
+  .side { padding:18px; border-right:1px solid var(--line); }
+  h1 { font-size:16px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:12px; margin-bottom:14px; }
+  .thumb { width:100%; max-height:340px; object-fit:contain; background:#fff; border-radius:8px; border:1px solid var(--line); }
+  .btns { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  button { background:#1c1e22; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 12px; cursor:pointer; }
+  button.on { background:var(--red); border-color:var(--red); }
+  .opts { margin-top:12px; display:flex; gap:12px; flex-wrap:wrap; color:var(--mut); font-size:12px; }
+  .opts input { accent-color:var(--red); }
+  #stage { position:relative; }
+  #info { position:absolute; left:14px; bottom:12px; color:var(--mut); font-size:12px; }
+  #err { position:absolute; left:14px; top:12px; color:#ff7b7b; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="side">
+    <h1>Skin: cueca vermelha</h1>
+    <div class="sub">Hunyuan3D 2.0 local → <code>public/models/smoll_skin_red_hunyuan.glb</code></div>
+    <img class="thumb" src="/sprites/smoll_skin_red.png" alt="sprite 2D da skin">
+    <div class="btns">
+      <button id="b-hunyuan" class="on">Hunyuan3D (novo)</button>
+      <button id="b-skin">Trellis2</button>
+      <button id="b-real">Smoll moletom</button>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="spin" checked> girar</label>
+      <label><input type="checkbox" id="wire"> arame</label>
+      <label><input type="checkbox" id="side"> vista de lado</label>
+    </div>
+    <div class="sub" style="margin-top:16px">
+      Arraste para girar, roda para zoom. O modelo vem em A-pose, normalizado para 1,75 m.
+    </div>
+  </aside>
+  <div id="stage">
+    <div id="err"></div>
+    <div id="info"></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+const stage = document.getElementById('stage');
+const err = document.getElementById('err');
+const info = document.getElementById('info');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x121316);
+
+const camera = new THREE.PerspectiveCamera(45, stage.clientWidth / stage.clientHeight, 0.01, 100);
+camera.position.set(0, 1.2, 3.2);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x222222, 1.4));
+const key = new THREE.DirectionalLight(0xffffff, 1.2);
+key.position.set(2, 3, 2);
+scene.add(key);
+
+scene.add(new THREE.GridHelper(6, 30, 0x3a3d44, 0x22252b));
+
+let model = null, yaw = 0, dragging = false, pitch = 0, dist = 3.2, spin = true;
+
+function normalize(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const h = Math.max(0.001, box.max.y - box.min.y);
+  obj.scale.multiplyScalar(1.75 / h);
+  const b2 = new THREE.Box3().setFromObject(obj);
+  const c = b2.getCenter(new THREE.Vector3());
+  obj.position.sub(new THREE.Vector3(c.x, b2.min.y, c.z));
+}
+
+function count(obj) {
+  let v = 0, f = 0;
+  obj.traverse(o => {
+    if (o.geometry) {
+      v += o.geometry.attributes.position.count;
+      f += o.geometry.index ? o.geometry.index.count / 3 : o.geometry.attributes.position.count / 3;
+    }
+  });
+  return { verts: v, faces: f };
+}
+
+function load(url) {
+  err.textContent = '';
+  new GLTFLoader().load(
+    url,
+    (gltf) => {
+      if (model) scene.remove(model);
+      model = gltf.scene;
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+        if (o.geometry.attributes.color) o.material.vertexColors = true;
+        o.material.side = THREE.DoubleSide;
+      });
+      normalize(model);
+      scene.add(model);
+      const c = count(model);
+      info.textContent = `${url} — ${c.verts.toLocaleString('pt-BR')} vértices, ${c.faces.toLocaleString('pt-BR')} triângulos`;
+    },
+    (e) => {
+      err.textContent = 'falha ao carregar: ' + (e && (e.message || e.name || String(e)));
+      console.error('glb load error', e);
+    }
+  );
+}
+
+function swap(btn, url) {
+  document.querySelectorAll('.btns button').forEach((b) => b.classList.remove('on'));
+  btn.classList.add('on');
+  load(url);
+}
+
+document.getElementById('b-hunyuan').onclick = (e) => swap(e.target, '/models/smoll_skin_red_hunyuan.glb');
+document.getElementById('b-skin').onclick = (e) => swap(e.target, '/models/smoll_skin_red.glb');
+document.getElementById('b-real').onclick = (e) => swap(e.target, '/models/smoll_real_hq.glb');
+document.getElementById('spin').onchange = (e) => { spin = e.target.checked; };
+document.getElementById('side').onchange = (e) => { yaw = e.target.checked ? Math.PI / 2 : 0; };
+document.getElementById('wire').onchange = (e) => {
+  if (!model) return;
+  model.traverse((o) => { if (o.isMesh) o.material.wireframe = e.target.checked; });
+};
+
+let last = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { last = { x: e.clientX, y: e.clientY }; dragging = true; });
+renderer.domElement.addEventListener('pointerup', () => { dragging = false; last = null; });
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (!dragging || !last) return;
+  yaw += (e.clientX - last.x) * 0.008;
+  pitch = Math.max(-1.2, Math.min(1.2, pitch + (e.clientY - last.y) * 0.008));
+  last = { x: e.clientX, y: e.clientY };
+});
+renderer.domElement.addEventListener('wheel', (e) => { dist = Math.max(0.6, Math.min(8, dist + e.deltaY * 0.002)); });
+
+function tick() {
+  if (spin && !dragging) yaw += 0.006;
+  camera.position.set(Math.sin(yaw) * dist * Math.cos(pitch), 1.0 + Math.sin(pitch) * dist, Math.cos(yaw) * dist * Math.cos(pitch));
+  camera.lookAt(0, 0.9, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+window.addEventListener('resize', () => {
+  renderer.setSize(stage.clientWidth, stage.clientHeight);
+  camera.aspect = stage.clientWidth / stage.clientHeight;
+  camera.updateProjectionMatrix();
+});
+
+tick();
+load('/models/smoll_skin_red_hunyuan.glb');
+</script>
+</body>
+</html>

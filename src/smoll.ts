@@ -2,8 +2,11 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { blockers } from './props'
 import { buildPC } from './pc'
-import { act, openTalk } from './interact'
-import { state } from './state'
+import { act, openTalk, dialog } from './interact'
+import { ITEMS, give } from './inventory'
+import { state, toast, world, deskMissing } from './state'
+import { strum } from './sfx'
+import { tv } from './tv'
 import { buildRig } from './rig'
 import { createAnim, type Clip } from './smollAnim'
 
@@ -68,7 +71,6 @@ export function buildSmoll(scene: THREE.Scene) {
 
   const hitbox = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.0, 1.0), new THREE.MeshBasicMaterial({ visible: false })); hitbox.position.set(0.1, 1.0, 0); R.add(hitbox) // alvo invisível: a mira acha ele de qualquer altura
   act(R, 'Falar com o Smoll', openTalk)
-  blockers.push([17.4, 11.4, 19, 14.6])
 
   // ---- Smoll realista rigado (Hunyuan3D + esqueleto de 17 ossos, ver rig.ts e smollAnim.ts) ----
   const MX = 17.95, S = 1.75 / 1.99
@@ -77,8 +79,12 @@ export function buildSmoll(scene: THREE.Scene) {
   const holder = new THREE.Group(); holder.rotation.y = Math.PI / 2; M.add(holder) // o modelo olha pra +z; a frente do grupo é +x
   let anim: ReturnType<typeof createAnim> | null = null
   let yawM = 0, chairYaw = 0, sitAmt = 0
+  let routeOut: ((to: string) => [number, number][]) | null = null // caminho do Smoll (definido quando o modelo carrega, usado no update)
+  let idleTrip = 60 + Math.random() * 60                                                // próxima saída espontânea (s)
+  let trips: { restock: (e: (typeof deskMissing)[number]) => boolean; start: (n: string) => boolean } | null = null
+  let task: { to: string; face: number; clip: Clip; secs: number; run: () => void; done?: () => void; sit?: number; tick?: number } | null = null // tarefa em andamento (ver TASKS)
   // onde o Smoll está: no PC, indo pra cama, se jogando nela, dormindo, levantando ou voltando pro PC
-  type Mode = 'desk' | 'toBed' | 'falling' | 'sleep' | 'rise' | 'toDesk'
+  type Mode = 'desk' | 'toBed' | 'falling' | 'sleep' | 'rise' | 'toDesk' | 'goTask' | 'doTask'
   let mode: Mode = 'desk', modeT = 0, wp: [number, number][] = []
   const zz = document.createElement('canvas'); zz.width = 128; zz.height = 128
   { const g = zz.getContext('2d')!; g.fillStyle = '#fff'; g.font = 'bold 60px sans-serif'; g.shadowColor = '#000'; g.shadowBlur = 6; g.fillText('Z', 10, 60); g.font = 'bold 44px sans-serif'; g.fillText('z', 52, 90); g.font = 'bold 30px sans-serif'; g.fillText('z', 86, 110) }
@@ -88,7 +94,20 @@ export function buildSmoll(scene: THREE.Scene) {
     gltf.scene.traverse((o) => { if (!src && (o as THREE.Mesh).isMesh) src = o as THREE.Mesh })
     if (!src) return
     src.geometry.computeVertexNormals() // o GLB do Hunyuan vem sem normais
-    const rig = buildRig(src.geometry, new THREE.MeshLambertMaterial({ map: (src.material as THREE.MeshStandardMaterial).map }))
+    // calça ↔ bermuda: a calça está pintada na textura, então o shader troca a cor das pernas pela bermuda (coxa) e pela pele (canela) pela altura no corpo
+    const mat = new THREE.MeshLambertMaterial({ map: (src.material as THREE.MeshStandardMaterial).map })
+    const shorts = { value: 0 }
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uShorts = shorts
+      sh.vertexShader = 'varying vec2 vB;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vB = position.xy;')
+      sh.fragmentShader = 'varying vec2 vB;\nuniform float uShorts;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        if (uShorts > 0.5 && abs(vB.x) < 0.3 && vB.y < -0.17 && vB.y > -0.93) {
+          vec3 skin = vec3(0.56, 0.34, 0.2), bermuda = vec3(0.1, 0.2, 0.36);
+          float cloth = smoothstep(-0.66, -0.6, vB.y);
+          diffuseColor.rgb = mix(skin, bermuda, cloth);
+        }`)
+    }
+    const rig = buildRig(src.geometry, mat)
     const mw = new THREE.Group(); mw.scale.setScalar(S); mw.position.y = 0.999 * S; mw.add(rig.mesh); holder.add(mw)
     // caneca na mão direita (osso hR): só aparece quando ele bebe
     const mug = new THREE.Group()
@@ -97,10 +116,75 @@ export function buildSmoll(scene: THREE.Scene) {
     anim = createAnim(rig, mug)
     M.visible = true; B.visible = false
     hitbox.visible = false; delete R.userData.act                            // o alvo agora é o modelo
-    const gotoBed = () => { if (mode !== 'desk') return false; anim!.stand(true); mode = 'toBed'; wp = [[17.5, 12.2], [15.1, 12.2], [14.65, 13]]; return true }
+    const gotoBed = () => { if (mode !== 'desk') return false; anim!.stand(true); mode = 'toBed'; wp = [[17.5, 12.2], [15.3, 12.2], [14.85, 13]]; return true }
     const wake = () => { if (mode !== 'sleep') return false; mode = 'rise'; modeT = 0; return true }
-    act(M, () => (mode === 'sleep' ? 'Acordar o Smoll' : 'Falar com o Smoll'), () => (mode === 'sleep' ? wake() : openTalk()))
+    act(M, () => (mode === 'sleep' ? 'Acordar o Smoll' : 'Falar com o Smoll'), () => (mode === 'sleep' ? wake() : openTalk()), (id, kind) => { // dar um item pro Smoll
+      const n = ITEMS[id].name
+      if (mode === 'sleep') { toast('Ele tá dormindo. Zzz.'); return true }
+      if (kind === 'drink') { anim!.play('sip'); toast(`Smoll: Valeu! Tava morrendo de sede. (${n})`); return 'consume' }
+      if (kind === 'food') { anim!.play('thumbs'); toast(`Smoll: Hmm, ${n}. Aceito, claro.`); return 'consume' }
+      if (kind === 'wear') { anim!.play('facepalm'); toast(`Smoll: ISSO NÃO É MEU! Nunca vi ${n} na vida!`); return 'consume' }
+      anim!.play('shrug'); toast(`Smoll: Pra que eu quero ${n}? Mas obrigado.`); return 'consume'
+    })
+    // troca de roupa: escurece a tela, troca a calça por bermuda (ou volta) e clareia
+    const changeClothes = () => {
+      const f = document.getElementById('fade')!, now = !state.smollShorts
+      f.style.opacity = '1'
+      setTimeout(() => { state.smollShorts = now; shorts.value = now ? 1 : 0; f.style.opacity = '0'; toast(now ? 'Smoll voltou de bermuda. As pernas nunca viram o sol. 🩳' : 'Smoll voltou de calça jeans. Calor? Ele nem liga.') }, 1300)
+      return now
+    }
+    // ---- tarefas: o Smoll anda por um grafo de pontos (portas e cômodos), faz a ação e volta pro PC pelo mesmo caminho ----
+    const N: Record<string, [number, number]> = {
+      desk: [17.5, 12.2], qin: [15.8, 11.8], qdoor: [15.5, 10.5], c15: [15.5, 8.5], c16: [16.5, 8.5], c10: [10.5, 8.5], c9: [9.5, 8.5], c4: [4.5, 8.5],
+      kdoor: [16.5, 6.5], kin: [16.5, 5.2], fridge: [17.6, 1.6], sdoor: [10.5, 6.5], sin: [10.5, 5.0], tv: [11.95, 4.4], bdoor: [9.5, 10.5], bin: [9.5, 12.6], shower: [10.2, 13.8],
+      g1: [15.0, 13.4], gtr: [13.4, 14.4], qsw: [16.45, 11.7], ssw: [9.0, 4.4],
+      sofa: [10.5, 1.75], kw1: [15.2, 4.9], kw2: [15.2, 2.4], pia: [16.5, 2.1], fogao: [17.7, 2.5], mesa: [16.5, 2.6],
+    }
+    const E: [string, string][] = [['desk', 'qin'], ['qin', 'qdoor'], ['qdoor', 'c15'], ['c15', 'c16'], ['c15', 'c10'], ['c10', 'c9'], ['c9', 'c4'], ['c16', 'kdoor'], ['kdoor', 'kin'], ['kin', 'kw1'], ['kw1', 'kw2'], ['kw2', 'pia'], ['pia', 'fogao'], ['fogao', 'fridge'], ['pia', 'mesa'],
+      ['c10', 'sdoor'], ['sdoor', 'sin'], ['sin', 'tv'], ['sin', 'sofa'], ['sin', 'ssw'], ['c9', 'bdoor'], ['bdoor', 'bin'], ['bin', 'shower'], ['qin', 'g1'], ['g1', 'gtr'], ['qin', 'qsw']]
+    const route = (to: string): [number, number][] => { // busca em largura no grafo
+      const prev: Record<string, string> = { desk: '' }, q = ['desk']
+      while (q.length) { const a = q.shift()!; for (const [x, y] of E) { const b = x === a ? y : y === a ? x : ''; if (b && !(b in prev)) { prev[b] = a; q.push(b) } } }
+      const out: [number, number][] = []; for (let n = to; n; n = prev[n]) out.unshift(N[n]); return out
+    }
+    routeOut = route
+    type Task = { to: string; face: number; clip: Clip; secs: number; run: () => void; done?: () => void; sit?: number }
+    const TASKS: Record<string, Task> = {
+      tv: { to: 'tv', face: -Math.PI / 2, clip: 'point', secs: 2.5, run: () => { world.tv(); toast('Smoll mexeu na TV. 📺') } },
+      luz: { to: 'ssw', face: Math.PI, clip: 'point', secs: 2, run: () => { world.luz.sala?.(); toast('Smoll apertou o interruptor da sala. 💡') } },
+      vent: { to: 'qsw', face: Math.PI / 2, clip: 'point', secs: 2, run: () => { world.ventilador.quarto?.(); toast('Smoll mexeu no ventilador do quarto. 🌀') } },
+      assistir: { to: 'sofa', face: -Math.PI / 2, clip: 'laugh', secs: 50, sit: 0.14, run: () => { anim!.stand(false); if (!tv.on) world.tv(); toast('Smoll sentou no sofá pra assistir TV com você. 📺🛋️') } },
+      cafe: { to: 'pia', face: Math.PI / 2, clip: 'sip', secs: 7, run: () => world.cozinha.cafe() },
+      louca: { to: 'pia', face: Math.PI / 2, clip: 'scratch', secs: 5, run: () => world.cozinha.louca() },
+      cozinhar: { to: 'fogao', face: 0, clip: 'point', secs: 5, run: () => world.cozinha.cozinhar() },
+      comer: { to: 'mesa', face: -Math.PI / 2, clip: 'thumbs', secs: 5, run: () => toast('Smoll comeu em pé, na mesa, sem prato. Quem lava é depois. 🍽️') },
+      agua: { to: 'pia', face: Math.PI / 2, clip: 'sip', secs: 3, run: () => toast('Smoll bebeu água do filtro. 💧') },
+      banheiro: { to: 'bin', face: -Math.PI / 2, clip: 'stretch', secs: 5, run: () => toast('Smoll foi ao banheiro. 🚽') },
+      kuat: { to: 'fridge', face: 0, clip: 'sip', secs: 3.6, run: () => toast('Smoll abriu a geladeira e pegou uma Kuat gelada. 🥤') },
+      'kuat-voce': { to: 'fridge', face: 0, clip: 'sip', secs: 3.6, run: () => toast('Smoll pegou uma Kuat pra você. 🥤'), done: () => { if (give('kuat')) toast('Smoll jogou uma Kuat pra você! 🥤 (mochila)') } },
+      violao: { to: 'gtr', face: Math.PI, clip: 'dance', secs: 6.5, run: () => { for (let i = 0; i < 5; i++) setTimeout(() => strum(0.1), i * 1200) } },
+      banho: { to: 'shower', face: -Math.PI / 2, clip: 'stretch', secs: 7, run: () => { world.chuveiro(true); setTimeout(() => world.chuveiro(false), 6500); toast('Smoll entrou no banho. Cantando alto. 🚿') } },
+    }
+    const startTask = (name: string) => {
+      const t = TASKS[name]; if (!t || mode !== 'desk') return false
+      anim!.stand(true); task = t; mode = 'goTask'; modeT = 0; wp = route(t.to).slice(1); return true
+    }
+    // repor a mesa: quando acaba energético ou café da mesa dele, vai buscar (geladeira / cafeteira) e coloca de volta
+    const restock = (e: (typeof deskMissing)[number]) => {
+      if (mode !== 'desk') return false
+      const cafe = e.kind === 'cafe'
+      anim!.stand(true); mode = 'goTask'; modeT = 0
+      task = {
+        to: cafe ? 'pia' : 'fridge', face: cafe ? Math.PI / 2 : 0, clip: 'sip', secs: 4,
+        run: () => toast(cafe ? 'Smoll passou um café novo na cafeteira. ☕' : 'Smoll pegou um energético novo na geladeira. 🥫'),
+        done: () => { e.restore(); toast(`Smoll colocou ${cafe ? 'o café' : 'o energético'} de volta na mesa dele. 🧃`) },
+      }
+      wp = route(task.to).slice(1); return true
+    }
+    trips = { restock, start: startTask }
     state.cmd = (c) => {
+      if (c.startsWith('task:')) return startTask(c.slice(5))
+      if (c === 'shorts') return changeClothes()
       if (c === 'sleep') return mode === 'sleep' ? wake() : gotoBed()
       if (c === 'wake') return wake()
       if (mode !== 'desk') return false // ocupado (andando ou dormindo)
@@ -120,6 +204,11 @@ export function buildSmoll(scene: THREE.Scene) {
         const tx = px - MX, tz = pz - CZ, dist = Math.hypot(tx, tz)
         const toPlayer = Math.atan2(-tz, tx)
         if (mode === 'desk') {
+          if (trips && !dialog.open && !state.editing) { // rotina: repõe a mesa quando falta bebida e, de vez em quando, sai do quarto
+            const tn = performance.now() / 1000, miss = deskMissing.find((e) => e.kind !== 'other' && tn - e.at > 10)
+            if (miss && trips.restock(miss)) deskMissing.splice(deskMissing.indexOf(miss), 1)
+            else if ((idleTrip -= dt) <= 0) { idleTrip = 70 + Math.random() * 110; trips.start(['kuat', 'cafe', 'comer', 'agua', 'banheiro', 'tv'][Math.floor(Math.random() * 6)]) }
+          }
           const t = dist < 3 ? toPlayer : 0 // dentro de 3 m o corpo (e a cadeira) gira pro jogador
           yawM += wrap(t - yawM) * Math.min(1, dt * 4)
           M.position.set(MX, 0, CZ); M.rotation.set(0, yawM, 0)
@@ -132,35 +221,52 @@ export function buildSmoll(scene: THREE.Scene) {
             yawM += wrap(Math.atan2(-dz2, dx2) - yawM) * Math.min(1, dt * 8); walk = 1
             return false
           }
-          if (mode === 'toBed' || mode === 'toDesk') {
+          if (mode === 'goTask' || mode === 'doTask') {
+            if (mode === 'goTask') {
+              if (wp.length && goTo(wp[0])) wp.shift()
+              if (!wp.length) { mode = 'doTask'; modeT = 0; task!.run(); anim.play(task!.clip) }
+            } else {
+              yawM += wrap(task!.face - yawM) * Math.min(1, dt * 6)
+              if (task!.sit !== undefined) { M.position.y = task!.sit; if ((task!.tick = (task!.tick ?? 5) + dt) > 5) { task!.tick = 0; anim.play((['laugh', 'thumbs', 'think'] as Clip[])[Math.floor(Math.random() * 3)]) } } // sentado no sofá: reage à TV de tempos em tempos
+              if (modeT > task!.secs) { M.position.y = 0; const t = task!; wp = routeOut!(t.to).slice(0, -1).reverse().concat([[17.95, 13]]); task = null; mode = 'toDesk'; t.done?.() }
+            }
+            M.rotation.set(0, yawM, 0)
+          } else if (mode === 'toBed' || mode === 'toDesk') {
             if (wp.length && goTo(wp[0])) wp.shift()
             if (!wp.length) {
-              if (mode === 'toBed') { mode = 'falling'; modeT = 0 }
+              if (mode === 'toBed') { mode = 'falling'; modeT = 0; yawM = wrap(yawM) }
               else { mode = 'desk'; anim.stand(false); yawM = 0 }
             }
             M.rotation.set(0, yawM, 0)
           } else if (mode === 'falling' || mode === 'rise') {
-            // de costas pra cama, ele se joga de costas: gira o corpo em torno dos pés (z = 90°) e sobe até o colchão
-            const l = mode === 'falling' ? sm2((modeT - 0.5) / 1.5) : 1 - sm2(modeT / 1.5)
-            if (mode === 'falling' && modeT < 0.5) yawM += wrap(0 - yawM) * Math.min(1, dt * 8)
-            M.rotation.set(0, l > 0 ? 0 : yawM, (l * Math.PI) / 2)
-            M.position.set(14.65 - 0.5 * l, 0.84 * l, 13)
-            lying = l > 0.25
-            if (mode === 'falling' && modeT > 2.0) mode = 'sleep'
-            if (mode === 'rise' && modeT > 1.5) { mode = 'toDesk'; wp = [[15.1, 12.2], [17.5, 12.2], [17.95, 13]]; yawM = 0; M.rotation.set(0, 0, 0); M.position.set(14.65, 0, 13) }
-          } else { lying = true; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, 0.84, 13) } // dormindo
+            // vira de costas pra cama, senta na quina, deita pra trás (a bacia é o pivô: pernas sobem, ele escorrega pra cima do colchão) e fica de barriga pra cima
+            // rise é o contrário. sit = 0 em pé → 1 sentado; lie = 0 sentado → 1 deitado
+            const t = mode === 'falling' ? modeT : 4.9 - modeT
+            let sit = 0, lie = 0, px = 14.85
+            if (t < 0.9) yawM += wrap(0 - yawM) * Math.min(1, dt * 6)                          // dá meia-volta
+            else if (t < 2.3) { sit = sm2((t - 0.9) / 1.4); px = 14.85 - 0.85 * sit }          // agacha e senta
+            else { sit = 1; px = 14.0; if (t > 2.9) lie = sm2((t - 2.9) / 2) }                 // deita
+            if (mode === 'rise') { yawM = 0 }
+            const th = lie * Math.PI / 2, yp = 0.75 - 0.106 * sit * (1 - lie)               // altura da bacia no corpo
+            const pxw = px + (13.4 - 14.0) * lie, pyw = sit < 1 ? 0.65 : 0.65 + 0.19 * lie   // bacia no mundo
+            M.rotation.set(0, yawM, th)
+            if (sit < 1) M.position.set(px, 0, 13); else M.position.set(pxw + Math.sin(th) * yp, pyw - Math.cos(th) * yp, 13)
+            anim.loco.bed = { sit, lie }; lying = false
+            if (mode === 'falling' && modeT > 4.9) { mode = 'sleep'; anim.loco.bed = null }
+            if (mode === 'rise' && modeT > 4.9) { mode = 'toDesk'; anim.loco.bed = null; wp = [[17.5, 12.2], [17.95, 13]]; yawM = 0; M.rotation.set(0, 0, 0); M.position.set(14.85, 0, 13) }
+          } else { lying = true; anim.loco.bed = null; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, 0.84, 13) } // dormindo
         }
         zzS.visible = mode === 'sleep'
         if (zzS.visible) zzS.position.set(13.3, 1.25 + 0.12 * Math.sin(now * 1.5), 13)
         let look = toPlayer - yawM; look = wrap(look)
         anim.loco.walk = walk; anim.loco.lying = lying
-        anim.update(dt, now, look, dist < 5 && mode === 'desk', dist, Math.atan2((anim.standing ? 1.6 : 1.37) - state.eye, Math.max(dist, 0.5))) // pitch: cabeça do Smoll vs olhos do jogador
+        anim.update(dt, now, look, dist < 5 && mode === 'desk', dist, Math.atan2((anim.standing ? 1.6 : 1.37) - (state.py + state.eye), Math.max(dist, 0.5))) // pitch: cabeça do Smoll vs olhos do jogador
         state.smollStanding = anim.standing
         // cadeira acompanha o giro enquanto ele está sentado e recua quando ele levanta
         sitAmt += ((anim.standing ? 1 : 0) - sitAmt) * Math.min(1, dt * 2.5)
         if (sitAmt < 0.5) chairYaw = yawM
         const back = 0.05 + 0.85 * sitAmt
-        R.position.set(MX - Math.cos(chairYaw) * back, 0, CZ + Math.sin(chairYaw) * back); R.rotation.y = chairYaw
+        R.position.set(MX - back, 0, CZ); R.rotation.y = chairYaw // recua sempre pra longe da mesa (-x), não pra onde o Smoll olha
         pc.update(now, dt)
         return
       }

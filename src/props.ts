@@ -1,10 +1,18 @@
 import * as THREE from 'three'
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import { act } from './interact'
 import { PLACE } from './place'
 import { gifTexture } from './gifTexture'
-import { state, toast, sleep, pick, setGate } from './state'
+import { tv, openRemote } from './tv'
+import { chime, bark, strum, sizzle } from './sfx'
+import { defineItem, give as giveItem, takeItem, count as invCount, ITEMS } from './inventory'
+import { openPanel, openChest } from './menu'
+import { pcState } from './code'
+import { openPhone } from './phone'
+import { UM, JOIN, MAC, PAL, BAR, WORLD } from './bairro'
+import { state, world, gameHour, vehicles, type Vehicle, toast, sleep, pick, setGate } from './state'
 
-type Rect = [number, number, number, number] // x0, z0, x1, z1
+type Rect = [number, number, number, number, number, number] // x0, z0, x1, z1, topo, base (m): dá pra subir em cima quando topo ≤ altura dos pés + degrau
 
 // muro de pedra mosaico cinza (Voronoi com rejunte claro), 1 m x 2 m, sem emendas
 let mosaic: THREE.MeshLambertMaterial | null = null
@@ -30,17 +38,33 @@ export function mosaicMat() {
   return (mosaic = new THREE.MeshLambertMaterial({ map: t }))
 }
 export const blockers: Rect[] = []
+// telhados de quatro águas pisáveis: retângulo no mundo + altura da beirada (y0) e da cumeeira (y1); inclinação uniforme como a malha do telhado
+export const playerPos = { x: 15, z: 8 } // main.ts atualiza todo quadro; usado pelos sons
+export const roofRects: { x0: number; z0: number; x1: number; z1: number; y0: number; y1: number }[] = []
+export const roofHeight = (x: number, z: number): number => {
+  let best = -1
+  for (const r of roofRects) if (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1) {
+    const d = Math.min(x - r.x0, r.x1 - x, z - r.z0, r.z1 - z), half = Math.min(r.x1 - r.x0, r.z1 - r.z0) / 2
+    best = Math.max(best, r.y0 + (r.y1 - r.y0) * Math.min(1, d / half))
+  }
+  return best
+}
 const H = 2.6
 
 export function buildProps(scene: THREE.Scene) {
   const roofs: THREE.Object3D[] = [] // somem na vista do mapa
+  let mirrorR: THREE.Object3D | null = null // espelho de reflexo real: só liga perto (renderiza a cena de novo)
+  const ticks: ((dt: number) => void)[] = [] // animações extras (água do chuveiro)
   const swing: { pivot: THREE.Object3D; phase: number }[] = [] // roupas balançando no varal
+  const culls: THREE.Object3D[] = [] // casas dos vizinhos: somem quando estão além da névoa (desempenho)
+  let cullT = 0
   let clock = 0
   let root: THREE.Object3D = scene, ox = 0 // raiz e deslocamento em x usados pelo bloco da rua (que mora num Group deslocado)
   const fans: THREE.Object3D[] = []
-  const block = (x0: number, z0: number, x1: number, z1: number) => blockers.push([x0 + ox, z0, x1 + ox, z1])
+  const block = (x0: number, z0: number, x1: number, z1: number, top = 2.6, bottom = 0) => blockers.push([x0 + ox, z0, x1 + ox, z1, top, bottom])
   const lm = (c: number) => new THREE.MeshLambertMaterial({ color: c })
   const bm = (c: number) => new THREE.MeshBasicMaterial({ color: c })
+  const ghost = (m: THREE.Mesh) => { const mat = m.material as THREE.MeshLambertMaterial; mat.transparent = true; mat.opacity = 0; mat.depthWrite = false; return m } // alvo de clique invisível
 
   // caixa: centro em x/z, y = base
   const box = (w: number, h: number, d: number, m: number | THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = root) => {
@@ -95,7 +119,73 @@ export function buildProps(scene: THREE.Scene) {
         if (open) toast(pick(msgs))
       })
     }
-    block(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2)
+    block(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, y + h, y) // balcão (0,9 m) dá pra subir; armário aéreo só bate na cabeça de quem está em cima
+  }
+
+  defineItem('Kuat', (g) => { cyl(0.033, 0.12, 0x2e9a3c, 0, 0, 0, g); cyl(0.035, 0.04, 0xf4f1e8, 0, 0.04, 0, g) })
+  defineItem('Manga', (g) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), lm(0xf0a020)); m.position.y = 0.05; g.add(m) })
+  // assentos: E senta (câmera baixa, presa no lugar); WASD/espaço levanta. spots = lugares do móvel; pega o mais próximo que não esteja ocupado (por outro jogador)
+  type Spot = { x: number; y: number; z: number; yaw: number }
+  const spotKey = (sp: Spot) => `${sp.x.toFixed(1)}_${sp.z.toFixed(1)}`
+  const sitAct = (o: THREE.Object3D, spots: Spot[], label: string) => act(o, () => (spots.every((sp) => state.takenSeats.has(spotKey(sp))) ? 'Lugar ocupado' : label), () => {
+    const free = spots.filter((sp) => !state.takenSeats.has(spotKey(sp))).sort((a, b) => Math.hypot(a.x - playerPos.x, a.z - playerPos.z) - Math.hypot(b.x - playerPos.x, b.z - playerPos.z))[0]
+    if (!free) { toast('Tá lotado! Espera alguém levantar.'); return }
+    state.seat = { ...free, key: spotKey(free), ex: free.x - Math.sin(free.yaw) * 0.8, ez: free.z - Math.cos(free.yaw) * 0.8 }
+    toast('Sentou. WASD ou espaço levanta · B abre os gestos (aparecem no espelho e pros outros).')
+  })
+  // item que dá pra pegar (some e volta em 20 s): build monta as peças dentro do grupo, em coordenadas locais com y = 0 na base
+  const thing = (x: number, y: number, z: number, label: string, msgs: string[], build: (g: THREE.Group) => void, hold = true) => {
+    const g = new THREE.Group(); g.position.set(x, y, z); scene.add(g); build(g)
+    const id = defineItem(label.replace(/^(Pegar|Ler)( o| a| os| as| um| uma)? /, '').replace(/^./, (c) => c.toUpperCase()), build)
+    act(g, label, () => { if (!giveItem(id)) return; toast(pick(msgs) + ` (+ ${ITEMS[id].name} 🎒)`); g.visible = false; setTimeout(() => (g.visible = true), hold ? 20000 : 30000) })
+    return g
+  }
+
+  // geladeira que abre: carcaça oca com prateleiras e itens (Kuat pegável, leite, ovos, mangas...), porta com garrafinhas e luz interna; frente pro oeste
+  const fridge = (cx: number, cz: number, h: number, color: number, stock: 'cozinha' | 'velha') => {
+    const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = Math.PI; scene.add(g)
+    const t = 0.04, W = 0.7, D = 0.7
+    box(t, h, W, 0xdedede, -D / 2 + t / 2, 0, 0, g)                                      // fundo
+    for (const sz of [-1, 1]) box(D, h, t, color, 0, 0, sz * (W / 2 - t / 2), g)       // laterais
+    box(D, t, W, color, 0, h - t, 0, g); box(D, t, W, 0xdedede, 0, 0, 0, g)             // topo e base
+    const shelves = [0.45, 0.85, 1.25].filter((y) => y < h - 0.25)
+    for (const sy of shelves) box(D - 0.1, 0.02, W - 0.1, 0xcfe8f5, -0.02, sy, 0, g)
+    const lightF = light(0xffffff, 0, 2.5, cx - 0.2, h * 0.6, cz)
+    const kuat = (x: number, y: number, z: number, big = false) => { // lata ou garrafa verde de Kuat: dá pra pegar, volta depois de 15 s
+      const it = new THREE.Group(); it.position.set(x, y, z); g.add(it)
+      const r = big ? 0.055 : 0.033, hh = big ? 0.3 : 0.12
+      cyl(r, hh, 0x2e9a3c, 0, 0, 0, it); cyl(r + 0.002, hh * 0.35, 0xf4f1e8, 0, hh * 0.3, 0, it); cyl(r * 0.6, 0.02, 0xcccccc, 0, hh, 0, it)
+      act(it, big ? 'Pegar a Kuat 2L' : 'Pegar uma Kuat', () => { if (!giveItem('kuat', big ? 2 : 1)) return; toast(`Pegou ${big ? 'a Kuat de 2 litros' : 'uma Kuat gelada'} 🥤`); it.visible = false; setTimeout(() => (it.visible = true), 15000) })
+    }
+    const ball = (x: number, y: number, z: number, r: number, c: number) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), lm(c)); m.position.set(x, y + r, z); g.add(m); return m }
+    const sy = (i: number) => shelves[i] + 0.02
+    if (stock === 'cozinha') {
+      box(0.5, 0.22, 0.55, 0x9bd1a0, -0.02, t, 0, g)                                      // gaveta de legumes
+      kuat(-0.05, sy(0), -0.18, true); kuat(-0.05, sy(0), -0.04, true); cyl(0.04, 0.28, 0x9fd0e8, -0.05, sy(0), 0.14, g) // 2 Kuat de 2 L e água
+      for (let i = 0; i < 4; i++) ball(0.1 + (i % 2) * 0.1, sy(0), 0.2 - Math.floor(i / 2) * 0.12, 0.05, 0xf0a020) // mangas do quintal
+      if (shelves[1]) {
+        for (const zz of [-0.2, -0.1]) act(box(0.1, 0.22, 0.08, 0xf4f4f0, -0.1, sy(1), zz, g), 'Pegar o leite', () => { if (giveItem('leite')) toast('Pegou o leite. 🥛') }) // leite
+        box(0.18, 0.05, 0.28, 0xd9c8a0, 0.0, sy(1), 0.12, g)
+        for (let i = 0; i < 6; i++) act(ball(-0.04 + (i % 2) * 0.08, sy(1) + 0.05, 0.02 + Math.floor(i / 2) * 0.09, 0.025, 0xf4efe0), 'Pegar um ovo', () => { if (giveItem('ovo')) toast('Pegou um ovo. 🥚') }) // ovos
+      }
+      if (shelves[2]) for (let i = 0; i < 6; i++) kuat(-0.1 + (i % 3) * 0.1, sy(2), -0.15 + Math.floor(i / 3) * 0.12)
+      cyl(0.09, 0.14, 0x8a8f94, 0.12, sy(1), -0.18, g)                                    // pote de sobra
+    } else {
+      for (let i = 0; i < 2; i++) cyl(0.03, 0.26, 0x7a4a1e, -0.05, sy(0), -0.1 + i * 0.12, g)    // cervejas
+      cyl(0.09, 0.14, 0xe0c040, 0.1, sy(0), 0.12, g)                                         // pote de pequi
+      if (shelves[1]) for (let i = 0; i < 3; i++) kuat(-0.05, sy(1), -0.15 + i * 0.12)
+    }
+    // porta: dobradiça no lado +z (local), abre pra fora
+    const door = new THREE.Group(); door.position.set(D / 2, 0, -W / 2); g.add(door) // dobradiça no lado sul: a porta abre pro meio da cozinha, sem bater na bancada
+    const panel = box(t, h - 0.02, W, color, 0, 0.01, W / 2, door)
+    box(0.03, 0.45, 0.04, 0x444444, 0.035, h * 0.45, W - 0.06, door)                     // puxador
+    for (let i = 0; i < 4; i++) cyl(0.025, 0.16, [0xc0392b, 0xf1c40f, 0x2ecc71, 0x3498db][i], -0.05, 0.6 + (i % 2) * 0.4, 0.12 + i * 0.14, door) // garrafinhas e molhos na porta
+    let open = false
+    const e = { g: door, a: 0 }; doors.push(e)
+    act(panel, () => (open ? 'Fechar geladeira' : 'Abrir geladeira'), () => {
+      open = !open; e.a = open ? 1.9 : 0; lightF.intensity = open ? 1.6 : 0
+      if (open) toast(pick(stock === 'cozinha' ? ['Kuat gelada, leite, ovos e as mangas do quintal.', 'Tem Kuat de sobra. Aproveita.', 'Gelada. Cheira a Kuat e cuscuz.'] : ['Só cerveja, pequi e uma Kuat esquecida.', 'Cheiro de fim de semana.']))
+    })
   }
 
   // ---------- OFICINA (x 1–7, z 1–6, ex-garagem fechada) ----------
@@ -111,7 +201,7 @@ export function buildProps(scene: THREE.Scene) {
   // lâmpada pendente
   box(0.01, 0.5, 0.01, 0x111111, 4, 2.1, 3.5)
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09), bm(0xfff2c0)); bulb.position.set(4, 2.05, 3.5); scene.add(bulb)
-  light(0xffd9a0, 6, 9, 4, 2.0, 3.5)
+  const lampOfi = light(0xffd9a0, 6, 9, 4, 2.0, 3.5)
 
   // carro (frente pro portão, oeste)
   const makeCar = (red: number) => {
@@ -128,17 +218,37 @@ export function buildProps(scene: THREE.Scene) {
     const w = cyl(0.33, 0.25, 0x151515, wx, 0, wz, car); w.rotation.x = Math.PI / 2; w.position.y = 0.33
     const hc = cyl(0.16, 0.27, 0xaaaaaa, wx, 0, wz, car); hc.rotation.x = Math.PI / 2; hc.position.y = 0.33
   }
+  car.scale.setScalar(0.7) // carros do tamanho dos visitantes (1,15 m)
   return car
   }
 
+  // registra o veículo: pega os blockers recém-criados (pra tirar do caminho enquanto dirige) e liga o "Entrar"
+  const regVeh = (g: THREE.Object3D, kind: Vehicle['kind'], n0: number, eye: Vehicle['eye'], len: number, wid: number, top: number) => {
+    const v: Vehicle = { g, kind, eye, len, wid, top, rects: blockers.slice(n0), ox, v: 0 }
+    vehicles.push(v); act(g, kind === 'car' ? 'Entrar no carro' : 'Subir na moto', () => { if (!state.driving) state.enter(v) })
+  }
   // ---------- GARAGEM ABERTA (carport na frente da casa, x 20–28, z 1–6) com portão de correr ----------
   const car = makeCar(0xb22222); car.rotation.y = Math.PI; car.position.set(23.8, 0, 3.4); scene.add(car) // focinho pro portão
-  block(21.7, 2.5, 25.9, 4.3)
+  let n0 = blockers.length
+  block(22.3, 2.6, 25.3, 4.2, 0.56); block(22.8, 2.7, 24.6, 4.1, 0.9); regVeh(car, 'car', n0, [0.15, 0.68, -0.28], 2.95, 1.3, 0.56)     // carro: capô sobe, cabine só pulando
+  // moto do Smoll: Honda CB 250 Twister 2014 vermelha, nariz pro portão (oeste), do lado do carro
+  const bike = new THREE.Group(); bike.position.set(27, 0, 3.6); bike.scale.setScalar(0.7); scene.add(bike)
+  for (const wx of [-0.62, 0.65]) { const w = cyl(0.3, 0.1, 0x151515, wx, 0, 0, bike); w.rotation.x = Math.PI / 2; w.position.y = 0.3; const h = cyl(0.17, 0.12, 0xaaaaaa, wx, 0, 0, bike); h.rotation.x = Math.PI / 2; h.position.y = 0.3 }
+  box(1.1, 0.06, 0.08, 0x2a2a2a, 0.0, 0.45, 0, bike)                // chassi
+  box(0.5, 0.35, 0.3, 0x3a3a3a, 0.05, 0.25, 0, bike)                // motor
+  box(0.55, 0.22, 0.28, 0xc01818, -0.12, 0.78, 0, bike)             // tanque vermelho
+  box(0.6, 0.1, 0.26, 0x151515, 0.35, 0.78, 0, bike)                // banco
+  box(0.4, 0.14, 0.24, 0xc01818, 0.78, 0.74, 0, bike)               // rabeta vermelha
+  box(0.06, 0.65, 0.06, 0xaaaaaa, -0.55, 0.3, 0.1, bike); box(0.06, 0.65, 0.06, 0xaaaaaa, -0.55, 0.3, -0.1, bike) // garfo
+  box(0.06, 0.06, 0.7, 0x151515, -0.52, 1.02, 0, bike)              // guidão
+  const hl = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), bm(0xfff7d0)); hl.position.set(-0.66, 0.9, 0); bike.add(hl) // farol
+  box(0.9, 0.1, 0.1, 0x8a8f94, 0.45, 0.2, 0.2, bike)                // escapamento
+  n0 = blockers.length; block(25.9, 3.3, 28.1, 3.9, 0.7); regVeh(bike, 'bike', n0, [0.2, 1.0, 0], 1.5, 0.5, 0.7)
   for (const px of [20.4, 24, 27.6]) { cyl(0.1, 2.6, 0xd8d8d0, px, 0, 5.85); block(px - 0.1, 5.75, px + 0.1, 5.95) } // pilares do telhado
   box(8, 0.2, 0.25, 0x8a3b1f, 24, 2.45, 5.95)                                                                      // viga da frente
   box(0.01, 0.4, 0.01, 0x111111, 24, 2.2, 3.5)
   const gb = new THREE.Mesh(new THREE.SphereGeometry(0.09), bm(0xfff2c0)); gb.position.set(24, 2.15, 3.5); scene.add(gb)
-  light(0xffd9a0, 5, 8, 24, 2.1, 3.5)
+  const lampGar = light(0xffd9a0, 5, 8, 24, 2.1, 3.5)
   box(0.9, 0.02, 0.6, 0x2a2018, 22.6, 0.001, 3.2)                                                                  // mancha de óleo
   const gateTex = tex(512, 256, (g, w, h) => { // grade de barras verticais enferrujadas, fundo transparente
     const rust = ['#c0431f', '#b5381a', '#cf5a2a']
@@ -152,8 +262,27 @@ export function buildProps(scene: THREE.Scene) {
   act(gp, () => (state.gateOpen ? 'Fechar portão' : 'Abrir portão'), () => setGate(!state.gateOpen))
   for (const z of [0.9, 6.1]) { box(0.5, 2.2, 0.5, mosaicMat(), 28.5, 0, z); box(0.6, 0.08, 0.6, 0x7d7d7a, 28.5, 2.2, z) } // colunas de pedra do portão
   // ferragens do muro (lado da rua)
-  box(0.05, 0.32, 0.22, 0xdddddd, 29.03, 1.4, 8.4); box(0.02, 0.1, 0.1, 0x88aacc, 29.06, 1.55, 8.4) // caixa do medidor
-  box(0.05, 0.18, 0.22, 0x111111, 29.03, 1.35, 11.2)                                                 // caixa de correio
+  const meter = box(0.05, 0.32, 0.22, 0xdddddd, 29.03, 1.4, 8.4); box(0.02, 0.1, 0.1, 0x88aacc, 29.06, 1.55, 8.4) // caixa do medidor
+  // relógio de luz: o consumo vem das luzes, ventiladores e TV que estão ligados; o painel mexe no disjuntor geral
+  const energy = { rooms: [] as { on: () => boolean; w: number; off: () => void }[], gato: false, kWh: 0, abajurOff: () => {} }
+  const watts = () => !state.power ? 0 : Math.round((180 + energy.rooms.reduce((a, r) => a + (r.on() ? r.w : 0), 0) + fans.reduce((a, f) => a + (f.userData.on ? 70 : 0), 0) + (tv.on ? 110 : 0)) * (energy.gato ? 0.4 : 1))
+  ticks.push((dt) => { energy.kWh += (watts() / 1000) * dt * (72 / 3600) }) // 1 s real = 72 s de jogo
+  const killPower = () => { pcState.mode = 'off'; energy.rooms.forEach((r) => r.off()); fans.forEach((f) => (f.userData.on = false)); energy.abajurOff(); tv.setOn(false); tv.sync() }
+  act(meter, 'Abrir o relógio de luz', () => openPanel('⚡ Relógio de luz',
+    () => `⚡ Consumo agora: <b>${watts()} W</b><br>📈 Gasto desde o amanhecer: <b>${energy.kWh.toFixed(2)} kWh</b><br>💸 Estimativa do mês: <b>R$ ${(energy.kWh * 30 * 0.95).toFixed(2)}</b><br>🔌 Disjuntor geral: <b>${state.power ? 'ligado' : 'DESLIGADO'}</b><br>🏴 Bandeira tarifária: vermelha, patamar 2${energy.gato ? '<br>⚠️ <i>gambiarra detectada (o relógio gira devagar)</i>' : ''}`,
+    [
+      { t: '🔌 Disjuntor geral', keep: true, fn: () => { state.power = !state.power; if (!state.power) { killPower(); toast('Smoll: QUEM DESLIGOU A LUZ?!'); state.cmd('facepalm') } else toast('A luz voltou. Os aparelhos você liga de novo.') } },
+      { t: '🪢 Fazer o gato', keep: true, fn: () => { energy.gato = !energy.gato; toast(energy.gato ? 'Gambiarra feita. O fiscal que não veja.' : 'Gato desfeito. Honestidade acima de tudo.'); if (energy.gato && Math.random() < 0.3) setTimeout(() => toast('O fiscal da Energisa apareceu! Multa de R$ 3.000. 🚨'), 2500) } },
+      { t: '📄 Anotar a leitura', fn: () => { const id = defineItem('Leitura do relógio', (g) => box(0.15, 0.01, 0.1, 0xf4f1e8, 0, 0, 0, g)); if (giveItem(id)) toast(`Anotou: ${energy.kWh.toFixed(2)} kWh. 📝`) } },
+    ]))
+  const mail = box(0.05, 0.18, 0.22, 0x111111, 29.03, 1.35, 11.2)                                    // caixa de correio
+  const paper = (g: THREE.Group) => { box(0.15, 0.01, 0.1, 0xf4f1e8, 0, 0, 0, g); box(0.1, 0.012, 0.012, 0xcc4444, 0, 0, 0.02, g) }
+  const MAIL = ['Carta do banco', 'Panfleto da pizzaria', 'Conta de luz atrasada', 'Convite de casamento', 'Carta para a Bia', 'Cupom de desconto vencido', 'Revista de fofoca', 'Boleto da internet'].map((n) => defineItem(n, paper))
+  let mailStock: { id: string; n: number }[] = [], mailAt = -1e9
+  act(mail, 'Abrir a caixa de correio', () => {
+    if (performance.now() - mailAt > 120000) { mailAt = performance.now(); mailStock = [...MAIL].sort(() => Math.random() - 0.5).slice(0, 3 + Math.floor(Math.random() * 3)).map((id) => ({ id, n: 1 })) } // chega correio novo a cada 2 min
+    openChest('📬 Caixa de correio', mailStock)
+  })
   wallPlane(0.34, 0.17, tex(128, 64, (g, w, h) => { g.fillStyle = '#f2efe6'; g.fillRect(0, 0, w, h); g.strokeStyle = '#2b2b2b'; g.lineWidth = 3; g.strokeRect(2, 2, w - 4, h - 4); g.fillStyle = '#111'; g.font = 'bold 38px sans-serif'; g.textAlign = 'center'; if (PLACE.number) g.fillText(PLACE.number, w / 2, 45) }), 29.03, 1.85, 10.0, Math.PI / 2) // número da casa
 
   // bancada + painel de ferramentas (parede norte)
@@ -173,7 +302,7 @@ export function buildProps(scene: THREE.Scene) {
     g.strokeStyle = '#c0c0c0'; g.lineWidth = 5; g.beginPath(); g.arc(240, 50, 24, 0, 7); g.stroke()          // serra
   })
   wallPlane(3.0, 1.2, painel, 4.75, 1.65, 1.01, 0)
-  block(3.0, 1.0, 6.5, 1.75)
+  block(3.0, 1.0, 6.5, 1.75, 0.93)                                         // bancada
 
   // estante (parede sul, oeste da porta)
   box(2.4, 2.0, 0.04, 0x6e5435, 2.5, 0, 5.97)
@@ -183,14 +312,101 @@ export function buildProps(scene: THREE.Scene) {
     box(2.4, 0.04, 0.5, 0x6e5435, 2.5, sy, 5.72)
     if (sy < 1.9) for (let i = 0; i < 5; i++) box(0.3 + (i % 2) * 0.1, 0.25 + (i % 3) * 0.08, 0.3, items[(i + Math.round(sy * 3)) % 6], 1.55 + i * 0.45, sy + 0.04, 5.72)
   }
-  block(1.3, 5.45, 3.7, 6)
+  block(1.3, 5.45, 3.7, 6, 2.0)
 
-  // geladeira velha
-  act(box(0.7, 1.7, 0.7, 0xdcdcdc, 6.5, 0, 5.6), 'Abrir geladeira velha', () => { if (Math.random() < 0.3) { state.drinks++; toast('Achou uma Kuat esquecida! 🥤') } else toast(pick(['Só água e um pote de pequi.', 'Cheiro de peixe. Fecha isso.', 'Vazia. Tem uma lâmpada queimada lá dentro.'])) })
-  box(0.02, 0.02, 0.7, 0x555555, 6.5, 1.1, 5.6)
-  box(0.04, 0.4, 0.04, 0x333333, 6.17, 1.15, 5.45); box(0.04, 0.4, 0.04, 0x333333, 6.17, 0.55, 5.45)
+  // geladeira velha (abre)
+  fridge(6.5, 5.6, 1.7, 0xdcdcdc, 'velha')
   box(0.5, 0.15, 0.01, 0x8a3b1f, 6.5, 0, 5.25) // barro
-  block(6.15, 5.25, 6.85, 5.95)
+  block(6.15, 5.25, 6.85, 5.95, 1.7)
+
+  // ---------- BANHEIRO (x 7–11, z 11–15; porta ao norte em x 9–10) ----------
+  const lampBan = light(0xffffff, 3, 6, 9, 2.4, 13)
+  box(3.9, 0.02, 3.9, 0xcfe3ea, 9, 0.001, 13)                                            // piso de azulejo claro
+  // privada na parede oeste: vaso + caixa acoplada com botão de descarga
+  const wc = new THREE.Group(); scene.add(wc)
+  cyl(0.15, 0.32, 0xf4f4f4, 7.55, 0, 12.2, wc)                                                            // pedestal
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.13, 0.2, 24, 1, true), new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })); bowl.position.set(7.62, 0.42, 12.2); wc.add(bowl) // tigela aberta: dá pra ver o fundo
+  const seat = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.024, 8, 28), lm(0xe8e8e8)); seat.rotation.x = Math.PI / 2; seat.position.set(7.62, 0.54, 12.2); wc.add(seat) // assento
+  const wcWater = cyl(0.13, 0.012, 0x7ab0c8, 7.62, 0.4, 12.2, wc)                                          // água no fundo da tigela
+  cyl(0.03, 0.004, 0x333333, 7.62, 0.33, 12.2, wc)                                                         // buraco do sifão
+  const tank = box(0.22, 0.45, 0.42, 0xf4f4f4, 7.13, 0.4, 12.2); const btn = cyl(0.04, 0.03, 0xbbbbbb, 7.13, 0.85, 12.2)
+  // tampa com dobradiça atrás (x ≈ 7.4): fecha por cima do assento ou abre encostada na caixa
+  const lidG = new THREE.Group(); lidG.position.set(7.4, 0.57, 12.2); scene.add(lidG)
+  cyl(0.24, 0.025, 0xfafafa, 0.22, 0, 0, lidG)
+  let lidOpen = false, lidA = 0, flushT = 0
+  act(lidG, () => (lidOpen ? 'Fechar a tampa' : 'Abrir a tampa'), () => { lidOpen = !lidOpen; toast(lidOpen ? 'Tampa aberta.' : 'Tampa fechada. Boa educação.') })
+  act(wc, 'Usar a privada', () => toast(lidOpen ? pick(['Sentou, pensou na vida e no bug de produção. 🚽', 'Cuidado com o celular, ele cai. Já caiu dois.', 'Missão cumprida. Não esquece de dar descarga.', 'Ficou 40 minutos. Tempo no banheiro não conta como produtividade.']) : 'Abre a tampa antes, mano.'), (id) => { if (!lidOpen) { toast('Abre a tampa antes, mano.'); return true } toast(`Descarga! Adeus, ${ITEMS[id].name}. 🌊`); return 'consume' })
+  const flush = () => { flushT = 2.6; toast(pick(['*SHHHHHHH* 🌊', 'Descarga dada. A caixa leva 2 min pra encher.', 'O ralo do Smoll agradece.'])) }
+  act(tank, 'Dar descarga', flush); act(btn, 'Dar descarga', flush)
+  ticks.push((dt) => {
+    lidA += ((lidOpen ? 1.75 : 0) - lidA) * Math.min(1, dt * 7); lidG.rotation.z = lidA
+    if (flushT > 0) { flushT -= dt; const k = Math.max(0, flushT) / 2.6; wcWater.rotation.y += dt * 14 * k; wcWater.position.y = 0.406 - 0.05 * Math.sin(Math.min(1, (1 - k) * 4) * Math.PI) } // gira e baixa, depois enche de novo
+  })
+  block(7, 11.95, 7.8, 12.45, 0.5)
+  const roll = cyl(0.055, 0.1, 0xffffff, 7.1, 0.75, 11.4); act(roll, 'Pegar papel higiênico', () => toast(pick(['Pegou papel. O rolo é o último, claro.', 'Só tem o miolo. Mais um clássico.'])))
+  // pia com gabinete na parede leste, torneira com água e espelho
+  box(0.5, 0.62, 0.7, 0xf0f0f0, 10.72, 0, 12.6)                                                           // gabinete (mais baixo sob a cuba)
+  for (const [w, d, x, z] of [[0.06, 0.74, 10.49, 12.6], [0.1, 0.74, 10.93, 12.6], [0.36, 0.17, 10.7, 12.315], [0.36, 0.17, 10.7, 12.885]]) box(w, 0.24, d, 0xffffff, x, 0.62, z) // bancada com buraco no meio
+  box(0.36, 0.015, 0.4, 0xbcd4e0, 10.7, 0.62, 12.6); cyl(0.02, 0.005, 0x333333, 10.7, 0.635, 12.6)         // fundo da cuba e ralo
+  act(ghost(box(0.34, 0.2, 0.38, 0xffffff, 10.7, 0.65, 12.6)), 'Lavar o rosto', () => toast(pick(['Lavou o rosto. Acordou de vez. Hoje.', 'Água na cara. O código continua com bug.', 'Escovou os dentes e cuspiu na pia. Humano ok.'])))
+  const tap = cyl(0.02, 0.18, 0x999999, 10.93, 0.86, 12.6); const spout = box(0.14, 0.025, 0.025, 0x999999, 10.86, 1.03, 12.6)
+  const flow = cyl(0.008, 0.36, 0x7ec8ff, 10.8, 0.66, 12.6); flow.visible = false
+  let tapOn = 0
+  const tapFn = () => {
+    flow.visible = !!(tapOn = tapOn ? 0 : 1)
+    if (tapOn) { toast(pick(['Lavou a mão. Dessa vez de verdade.', 'Água fria. A Caern mandou um abraço.', 'Escovou os dentes por 8 segundos.'])); setTimeout(() => { flow.visible = false; tapOn = 0 }, 7000) }
+  }
+  const tapHit = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })); tapHit.position.set(10.84, 1.0, 12.6); scene.add(tapHit) // área de clique maior que a torneira fina
+  for (const o of [tap, spout, tapHit]) act(o, () => (tapOn ? 'Fechar a torneira' : 'Abrir a torneira'), tapFn)
+  block(10.45, 12.25, 11, 12.95, 0.86)
+  const mir = new Reflector(new THREE.PlaneGeometry(0.55, 0.8), { textureWidth: 512, textureHeight: 512, color: 0xd6e6ec, clipBias: 0.003 })
+  mir.position.set(10.985, 1.3, 12.6); mir.rotation.y = -Math.PI / 2; scene.add(mir); mirrorR = mir
+  const mirDraw = mir.onBeforeRender // o Reflector desenha o reflexo aqui: liga o corpo do jogador só durante esse desenho
+  mir.onBeforeRender = function (this: THREE.Object3D, ...a: unknown[]) { const av = state.avatar; if (av) av.visible = true; (mirDraw as (...x: unknown[]) => void).apply(this, a); if (av) av.visible = false }
+  box(0.02, 0.84, 0.03, 0x5a3a22, 10.99, 0.88, 12.6 - 0.29); box(0.02, 0.84, 0.03, 0x5a3a22, 10.99, 0.88, 12.6 + 0.29)
+  box(0.02, 0.03, 0.62, 0x5a3a22, 10.99, 0.88, 12.6); box(0.02, 0.03, 0.62, 0x5a3a22, 10.99, 1.69, 12.6)
+  act(mir, 'Olhar no espelho', () => toast(pick(['Tá com cara de quem dormiu 3 horas.', 'Ficou bonito. O espelho mente, mas ficou.', 'Tem uma barba aí. Quando foi a última vez?'])))
+  // produtos femininos espalhados: nicho do chuveiro, pia e caixa da privada (o Smoll "mora sozinho")
+  box(0.14, 0.03, 0.75, 0xcccccc, 10.92, 1.05, 14.2)
+  thing(10.92, 1.08, 13.95, 'Pegar o shampoo', ['Shampoo "Cachos Definidos". O Smoll tem cabelo curtinho.', 'Shampoo de babosa. Metade do frasco já foi, e o Smoll não tem cabelo comprido.'], (g) => { cyl(0.035, 0.2, 0xf06ea9, 0, 0, 0, g); cyl(0.02, 0.03, 0xffffff, 0, 0.2, 0, g) }, false)
+  thing(10.92, 1.08, 14.15, 'Pegar o condicionador', ['Condicionador de coco. Smoll diz que é "pro cabelo ficar macio, ué".', 'Creme de pentear pra cachos. Ele não tem cachos.'], (g) => { cyl(0.035, 0.2, 0xb34de0, 0, 0, 0, g); cyl(0.02, 0.03, 0xffffff, 0, 0.2, 0, g) }, false)
+  thing(10.92, 1.08, 14.38, 'Pegar o sabonete íntimo', ['Sabonete íntimo de camomila. Smoll jura que é "pra pele sensível".', 'Sabonete íntimo. Segundo ele, o rótulo errou de gênero.'], (g) => { cyl(0.03, 0.14, 0xffffff, 0, 0, 0, g); cyl(0.022, 0.03, 0xf06ea9, 0, 0.14, 0, g) }, false)
+  thing(10.92, 1.08, 14.6, 'Pegar o hidratante', ['Creme hidratante com cheiro de morango. Smoll chama de "teste de produto".', 'Hidratante pra pele seca. Tem a marca de um dedo. Do Smoll mesmo.'], (g) => { cyl(0.05, 0.06, 0xf2c4dc, 0, 0, 0, g); cyl(0.052, 0.015, 0xffffff, 0, 0.06, 0, g) }, false)
+  thing(10.65, 0.86, 12.95, 'Pegar o sabonete', ['Sabonete de glicerina. Cheiro de rosa. Ninguém explicou.', 'Sabonete quase no fim, mas ainda dá pra lavar o orgulho.'], (g) => { box(0.1, 0.03, 0.06, 0xffd9e8, 0, 0, 0, g) }, false)
+  thing(10.8, 0.86, 12.25, 'Pegar o perfume', ['Perfume feminino "Bom Dia Flor". Smoll borrifa antes de sair.', 'Cheiro doce de baunilha. Estranho pra quem mora no PC.'], (g) => { box(0.06, 0.1, 0.05, 0xf8b4cf, 0, 0, 0, g); cyl(0.015, 0.03, 0xd4af37, 0, 0.1, 0, g) }, false)
+  thing(10.6, 0.86, 12.3, 'Pegar a escova de cabelo', ['Escova rosa com fios longos presos. Sem comentários.', 'Escova de cabelo cheia de fios. Smoll só tem 2 cm de cabelo.'], (g) => { box(0.18, 0.015, 0.06, 0xe87aa8, 0, 0, 0, g); box(0.08, 0.02, 0.05, 0xe87aa8, -0.13, 0, 0, g) }, false)
+  thing(7.13, 0.85, 11.95, 'Pegar o absorvente', ['Pacote de absorvente com abas. Smoll diz que "ficou da visita".', 'Absorvente noturno. Tava no kit de emergência do Smoll.'], (g) => { box(0.14, 0.06, 0.1, 0xff9ec4, 0, 0, 0, g) }, false)
+  // armário do banheiro na parede norte (portas abrem pra dentro do banheiro), com coisas dentro
+  cabinet(8.0, 1.5, 11.2, 1.2, 0.7, 0.3, 1, 0xe8e8e8, ['Só remédio vencido e um fio dental.', 'Tem mais produto de cabelo do que um homem precisa.', 'Cheiro de hortelã e de coisa que ficou esquecida.'])
+  thing(7.5, 1.88, 11.12, 'Pegar a pasta de dente', ['Pasta de dente espremida do meio. Crime.', 'Tá no fim. Smoll só troca quando acaba de vez.'], (g) => { cyl(0.025, 0.14, 0x2e86de, 0, 0, 0, g); cyl(0.02, 0.03, 0xffffff, 0, 0.14, 0, g) })
+  thing(7.5, 1.88, 11.3, 'Pegar o remédio', ['Dipirona vencida desde 2023. Smoll toma assim mesmo.', 'Caixa de remédio pra dor de cabeça. Código com bug dá dor de cabeça.'], (g) => { box(0.1, 0.12, 0.05, 0xffffff, 0, 0, 0, g); box(0.04, 0.04, 0.052, 0xc0182c, 0, 0.04, 0, g) })
+  thing(8.5, 1.88, 11.12, 'Pegar o creme de barba', ['Creme de barba. Pelo menos esse é do Smoll.', 'Espuma de barbear. A barba do Smoll agradece.'], (g) => { cyl(0.03, 0.16, 0x6a4a2a, 0, 0, 0, g); cyl(0.02, 0.03, 0xdddddd, 0, 0.16, 0, g) })
+  thing(8.5, 1.88, 11.3, 'Pegar o fio dental', ['Fio dental. Metade da caixa já foi, o que é suspeito, porque ele nunca usa.', 'Fio dental sabor menta. Nunca usado, na teoria.'], (g) => { cyl(0.04, 0.05, 0x4fb7a5, 0, 0, 0, g) })
+  // box do chuveiro no canto sudeste: bandeja, vidro, ducha e gotas
+  box(1.45, 0.06, 1.4, 0xdfe8ec, 10.25, 0, 14.25)
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.9, 1.4), new THREE.MeshLambertMaterial({ color: 0xaad4e8, transparent: true, opacity: 0.3 })); glass.position.set(9.5, 0.95, 14.3); scene.add(glass)
+  block(9.47, 13.6, 9.53, 15, 1.9)
+  box(0.03, 0.4, 0.03, 0x999999, 10.4, 1.65, 14.97); const head = cyl(0.1, 0.03, 0xcccccc, 10.4, 2.0, 14.8); head.rotation.x = Math.PI / 2 - 0.5; box(0.03, 0.03, 0.2, 0x999999, 10.4, 2.0, 14.9)
+  const pos = new Float32Array(90 * 3), drops = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0x9fd8ff, size: 0.03, transparent: true, opacity: 0.8 }))
+  drops.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3)); drops.frustumCulled = false; drops.visible = false; scene.add(drops)
+  const dropSeed = Array.from({ length: 90 }, () => [(Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.3, Math.random()])
+  let shower = 0, showerT = 0
+  ticks.push((dt) => {
+    if (!shower) return
+    showerT += dt; if (showerT > 15) { shower = 0; drops.visible = false; return }
+    dropSeed.forEach((d, i) => { d[2] = (d[2] + dt * 1.6) % 1; pos[i * 3] = 10.4 + d[0] * (0.3 + d[2]); pos[i * 3 + 1] = 1.95 - 1.9 * d[2] * d[2]; pos[i * 3 + 2] = 14.6 - 0.3 * d[2] + d[1] })
+    drops.geometry.attributes.position.needsUpdate = true
+  })
+  const toggleShower = () => {
+    shower = shower ? 0 : 1; showerT = 0; drops.visible = !!shower
+    if (shower) toast(pick(['Água gelada! Rondônia não perdoa. 🚿', 'Banho de 40 minutos. A conta de luz que se vire.', 'Cantando no banho. Ninguém ouve, graças a Deus.']))
+  }
+  world.chuveiro = (on) => { if (!!shower !== on) toggleShower() }
+  act(head, () => (shower ? 'Desligar o chuveiro' : 'Ligar o chuveiro'), toggleShower)
+  act(glass, () => (shower ? 'Desligar o chuveiro' : 'Ligar o chuveiro'), toggleShower)
+  const knob = cyl(0.045, 0.05, 0xd0d0d0, 10.0, 1.1, 14.95); knob.rotation.x = Math.PI / 2; knob.position.z = 14.96 // registro na altura da mão
+  act(knob, () => (shower ? 'Fechar o registro' : 'Abrir o registro'), toggleShower)
+  const towel = box(0.5, 0.9, 0.03, 0x2a5db0, 7.7, 1.0, 14.95); act(towel, 'Pegar a toalha', () => toast(pick(['Toalha ainda úmida do último banho. Fazer o quê.', 'Cheira a sabão em pó e a promessa de lavar.'])))
 
   // ---------- QUARTO (x 12–19, z 9–13) ----------
   // cama: cabeceira na parede oeste
@@ -202,26 +418,41 @@ export function buildProps(scene: THREE.Scene) {
     g.fillStyle = '#e0a458'; for (let x = 0; x < w; x += 64) g.fillRect(x, 0, 14, h)
     g.fillStyle = '#ee6c4d'; for (let y = 0; y < h; y += 64) g.fillRect(0, y + 28, w, 6)
   })
-  const mm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.74), new THREE.MeshBasicMaterial({ map: manta }))
-  mm.rotation.x = -Math.PI / 2; mm.position.set(13.7, 0.66, 13); scene.add(mm)
+  const mm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.74), new THREE.MeshBasicMaterial({ map: manta, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
+  mm.rotation.x = -Math.PI / 2; mm.position.set(13.7, 0.668, 13); scene.add(mm)
   box(1.2, 0.12, 1.74, 0x3d5a80, 13.7, 0.54, 13)
   box(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 12.35); box(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 13.65)
-  block(12, 12.05, 14.2, 13.95)
+  block(12, 12.05, 14.2, 13.95, 0.66); block(12, 12.05, 12.2, 13.95, 1.1)  // cama (sobe) e cabeceira
   // criado-mudo + abajur
   box(0.5, 0.5, 0.45, 0x5a3a22, 12.27, 0, 11.5)
   cyl(0.05, 0.2, 0x222222, 12.27, 0.5, 11.5)
   const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.17, 0.2, 12), bm(0xffe2a8)); shade.position.set(12.27, 0.82, 11.5); scene.add(shade)
   const lamp = light(0xffc880, 3, 5, 12.4, 0.95, 11.7)
+  energy.abajurOff = () => { lamp.intensity = 0; (shade.material as THREE.MeshBasicMaterial).color.set(0x8a6a4a) } // disjuntor desligado apaga o abajur também
   act(shade, () => (lamp.intensity ? 'Apagar abajur' : 'Acender abajur'), () => { lamp.intensity = lamp.intensity ? 0 : 3; (shade.material as THREE.MeshBasicMaterial).color.set(lamp.intensity ? 0xffe2a8 : 0x6b5e4a) })
-  block(12, 11.27, 12.55, 11.75)
+  block(12, 11.27, 12.55, 11.75, 0.5)
   // guarda-roupa (parede sul)
-  cabinet(16.5, 0, 14.7, 2.0, 2.1, 0.6, -1, 0x7a5a3a, ['Só moletom preto. Todos iguais.', 'Achou uma camiseta do tempo da faculdade.', 'Uma meia sozinha. Como sempre.'])
+  cabinet(16.5, 0, 14.7, 2.0, 2.1, 0.6, -1, 0x7a5a3a, ['Só moletom preto. Todos iguais.', 'Achou uma camiseta do tempo da faculdade.', 'Uma meia sozinha. Como sempre.', 'Tem coisa aqui que o Smoll não explicou…'])
+  // itens suspeitos escondidos no armário (só aparecem com as portas abertas)
+  const SH = 0.03, TOP = 1.08
+  thing(15.75, SH, 14.75, 'Pegar o salto alto nº 42', ['Salto alto vermelho, número 42. "É pra um amigo", diz o Smoll.', 'Gasto na ponta. Alguém anda treinando.'], (g) => { box(0.1, 0.05, 0.24, 0xc0182c, 0, 0.03, 0, g); box(0.1, 0.12, 0.06, 0xc0182c, 0, 0.0, 0.1, g); cyl(0.012, 0.1, 0x222222, 0, 0, -0.1, g) })
+  thing(16.15, SH, 14.78, 'Pegar a bolsa feminina', ['Bolsa rosa com batom, espelhinho e um recibo de salão. Interessante.', 'Dentro: absorvente, chiclete e a chave da casa de uma tal de Bia.'], (g) => { box(0.28, 0.2, 0.1, 0xe87aa8, 0, 0, 0, g); box(0.18, 0.02, 0.02, 0x7a3a54, 0, 0.2, 0, g) })
+  thing(16.7, SH, 14.8, 'Pegar a peruca loira', ['Peruca loira longa. O Smoll jura que é do cosplay.', 'Ainda tem cheiro de laquê. Foi usada recentemente.'], (g) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), lm(0xe8c860)); g.add(m); box(0.2, 0.18, 0.04, 0xe8c860, 0, -0.1, -0.1, g) })
+  thing(17.1, SH, 14.78, 'Pegar o vestido floral', ['Vestido floral tamanho M. Não é da mãe, não.', 'Passado e dobrado com carinho. Muito suspeito.'], (g) => { box(0.3, 0.05, 0.25, 0xf2a5c8, 0, 0, 0, g); box(0.3, 0.02, 0.1, 0x8ac27a, 0, 0.05, 0.06, g) })
+  thing(17.32, SH, 14.62, 'Pegar a caixa "Nada Suspeito"', ['Caixa escrita "NADA SUSPEITO" com caneta. Dentro: mais uma caixa.', 'Tem um bilhete: "Se alguém achar, é do meu primo".'], (g) => { box(0.3, 0.22, 0.25, 0x9a7048, 0, 0, 0, g); box(0.2, 0.06, 0.01, 0xffffff, 0, 0.08, 0.126, g) })
+  thing(15.65, TOP, 14.6, 'Pegar a calcinha de renda', ['Calcinha de renda preta. Pergunta aberta: de quem?', 'O Smoll tenta explicar: "Veio na lavagem errada".'], (g) => { box(0.16, 0.012, 0.12, 0x2a2a30, 0, 0, 0, g); box(0.16, 0.014, 0.02, 0xe87aa8, 0, 0, -0.06, g) })
+  thing(15.95, TOP, 14.82, 'Pegar o sutiã de renda', ['Sutiã tamanho 42. O Smoll nega com a cabeça, mas o rosto entrega.', 'Sutiã rosa com bojo. Fica pro dono provar.'], (g) => { for (const dx of [-0.05, 0.05]) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), lm(0xe85a98)); m.position.set(dx, 0, 0); g.add(m) } box(0.2, 0.012, 0.012, 0xe85a98, 0, 0.01, 0.03, g) })
+  thing(17.0, TOP, 14.55, 'Pegar o batom vermelho', ['Batom vermelho "Paixão Fatal". Nível de uso: 60%.', 'Passou sem querer. Agora tá todo mundo olhando.'], (g) => { cyl(0.018, 0.05, 0xd4af37, 0, 0, 0, g); cyl(0.015, 0.04, 0xc0182c, 0, 0.05, 0, g) })
+  thing(17.25, TOP, 14.85, 'Pegar a meia-calça arrastão', ['Meia arrastão. Ninguém sabe a história disso.', 'Tá rasgada num joelho. Foi pro baile funk?'], (g) => { box(0.2, 0.02, 0.1, 0x1c1c22, 0, 0, 0, g); box(0.18, 0.012, 0.08, 0x555560, 0, 0.012, 0, g) })
+  thing(15.65, TOP, 14.9, 'Pegar a fantasia de coelhinha', ['Orelhinhas de coelho e uma gola. "Foi no Halloween de 2021".', 'Fantasia completa de coelhinha. O Smoll muda de assunto.'], (g) => { box(0.18, 0.02, 0.04, 0x222222, 0, 0, 0, g); for (const dx of [-0.05, 0.05]) box(0.03, 0.16, 0.012, 0xffffff, dx, 0.02, 0, g) })
+  thing(16.95, TOP, 14.9, 'Pegar o kit de maquiagem', ['Paleta de sombras com 24 cores. Metade gasta. Bem gasta.', 'Base, pó e um pincel. O Smoll diz que é pra cobrir o cansaço.'], (g) => { box(0.2, 0.04, 0.14, 0xe87aa8, 0, 0, 0, g); for (let i = 0; i < 4; i++) box(0.03, 0.005, 0.03, [0x7a3a9a, 0x3a7ac2, 0xe8c860, 0xc0182c][i], -0.07 + i * 0.045, 0.042, 0, g) })
+  thing(17.42, TOP, 14.7, 'Ler o diário', ['"Querido diário: hoje o Smoll programou 14 horas seguidas…" O resto tá riscado.', 'Cadeado dourado. Alguém arrombou. Qualquer pessoa.'], (g) => { box(0.15, 0.03, 0.2, 0x6a3a8a, 0, 0, 0, g); box(0.02, 0.035, 0.03, 0xd4af37, 0.08, 0, 0, g) })
   // quadro com o GIF animado (ícone do servidor do Discord) e moldura de madeira, na parede norte do quarto
   const quadro = gifTexture('/img/quadro.gif')
   wallPlane(0.9, 0.9, quadro.texture, 17.5, 1.6, 11.01, 0)
   for (const [w, h, x, y] of [[1.0, 0.06, 17.5, 2.08], [1.0, 0.06, 17.5, 1.12], [0.06, 0.96, 16.99, 1.6], [0.06, 0.96, 18.01, 1.6]]) box(w, h, 0.05, 0x5a3a22, x, y - h / 2, 11.03)
   // área da mesa do Smoll (sprite em main.ts)
-  block(17.6, 11.4, 19, 14.6)
+  block(18.17, 11.9, 19, 14.1, 0.78); block(18.5, 11.7, 18.75, 12.3, 0.47)  // mesa do Smoll (sobe) e o gabinete embaixo
 
   // ---------- SALA (x 8–13, z 1–6) ----------
   const rug = tex(256, 192, (g, w, h) => {
@@ -233,11 +464,18 @@ export function buildProps(scene: THREE.Scene) {
   const r = new THREE.Mesh(new THREE.PlaneGeometry(3, 2.2), new THREE.MeshBasicMaterial({ map: rug }))
   r.rotation.x = -Math.PI / 2; r.position.set(10.5, 0.01, 3.5); scene.add(r)
   // sofá (norte, abaixo da janela)
-  act(box(2.6, 0.4, 0.9, 0x4b4f5c, 10.5, 0, 1.55), 'Sentar no sofá', () => toast('Sentou. Levantar é opcional.')); box(2.6, 0.5, 0.2, 0x3b3f4a, 10.5, 0.4, 1.15)
+  const SOFA: Spot[] = [9.85, 10.5, 11.15].map((x) => ({ x, y: 0.52, z: 1.65, yaw: Math.PI }))
+  sitAct(box(2.6, 0.4, 0.9, 0x4b4f5c, 10.5, 0, 1.55), SOFA, 'Sentar no sofá'); box(2.6, 0.5, 0.2, 0x3b3f4a, 10.5, 0.4, 1.15)
   box(0.25, 0.65, 0.9, 0x3b3f4a, 9.35, 0, 1.55); box(0.25, 0.65, 0.9, 0x3b3f4a, 11.65, 0, 1.55)
-  box(0.95, 0.12, 0.65, 0x5d6272, 10.05, 0.4, 1.6); box(0.95, 0.12, 0.65, 0x5d6272, 10.95, 0.4, 1.6)
+  sitAct(box(0.95, 0.12, 0.65, 0x5d6272, 10.05, 0.4, 1.6), SOFA, 'Sentar no sofá'); sitAct(box(0.95, 0.12, 0.65, 0x5d6272, 10.95, 0.4, 1.6), SOFA, 'Sentar no sofá') // almofadas
   box(0.35, 0.35, 0.12, 0xe0a458, 9.8, 0.5, 1.3)
-  block(9.2, 1.1, 11.8, 2.0)
+  block(9.2, 1.1, 11.8, 2.0, 0.5); block(9.2, 1.1, 11.8, 1.3, 0.9)           // sofá: assento e encosto
+  // poltrona (leste) e dois puffs no tapete, todos virados pra TV
+  const armchair: Spot[] = [{ x: 12.45, y: 0.5, z: 2.35, yaw: Math.PI + 0.1 }]
+  sitAct(box(0.75, 0.4, 0.75, 0x6a4a3a, 12.45, 0, 2.3), armchair, 'Sentar na poltrona'); sitAct(box(0.75, 0.55, 0.15, 0x5a3c2e, 12.45, 0.4, 1.97), armchair, 'Sentar na poltrona')
+  for (const dx of [-0.31, 0.31]) box(0.12, 0.3, 0.7, 0x5a3c2e, 12.45 + dx, 0.4, 2.3)
+  block(12.05, 1.9, 12.85, 2.7, 0.45); block(12.05, 1.9, 12.85, 2.05, 0.95)
+  for (const [px, pz, col] of [[9.4, 4.2, 0xc0392b], [11.6, 4.2, 0x2e86de]] as const) { sitAct(cyl(0.25, 0.32, col, px, 0, pz), [{ x: px, y: 0.34, z: pz, yaw: Math.PI }], 'Sentar no puff'); block(px - 0.25, pz - 0.25, px + 0.25, pz + 0.25, 0.32) }
   // rack + TV (sul)
   box(1.6, 0.45, 0.4, 0x3a2a1a, 11.95, 0, 5.75)
   const tvBody = box(1.2, 0.7, 0.06, 0x111111, 11.95, 0.55, 5.75)
@@ -247,24 +485,153 @@ export function buildProps(scene: THREE.Scene) {
   })
   const tvPlane = wallPlane(1.12, 0.62, tvScreen, 11.95, 0.9, 5.71, Math.PI)
   const tvLight = light(0x6688ff, 2.5, 4, 11.95, 1.0, 5.2)
-  const tvToggle = () => { const on = tvLight.intensity > 0; tvLight.intensity = on ? 0 : 2.5; (tvPlane.material as THREE.MeshBasicMaterial).color.set(on ? 0x000000 : 0xffffff) }
-  for (const o of [tvBody, tvPlane]) act(o, () => (tvLight.intensity ? 'Desligar TV' : 'Ligar TV'), tvToggle)
-  block(11.15, 5.55, 12.75, 5.95)
+  const tvOff = new THREE.MeshBasicMaterial({ color: 0x000000 })
+  tv.place(11.95, 0.9, 5.71, Math.PI, 1.12); tvPlane.material = tv.hole // começa ligada, passando um vídeo do YouTube
+  // 1º E com som mudo → liga o som; depois alterna ligada/desligada
+  const tvToggle = () => {
+    if (tv.on && tv.muted) { tv.unmute(); toast('Som da TV ligado. 🔊'); return }
+    if (!tv.on && state.tvBlocked) { toast('A TV está bloqueada no roteador. 🚫'); return }
+    tv.setOn(!tv.on); tvPlane.material = tv.on ? tv.hole : tvOff; tvLight.intensity = tv.on ? 2.5 : 0
+    if (tv.on) { tv.muted = true; tv.unmute() }
+  }
+  tv.sync = () => { tvPlane.material = tv.on ? tv.hole : tvOff; tvLight.intensity = tv.on ? 2.5 : 0 }
+  world.tv = () => { if (state.tvBlocked) { toast('A TV está bloqueada no roteador. 🚫'); return } tv.setOn(!tv.on); tvPlane.material = tv.on ? tv.hole : tvOff; tvLight.intensity = tv.on ? 2.5 : 0; if (tv.on) { tv.muted = true; tv.unmute() } }
+  for (const o of [tvBody, tvPlane]) act(o, () => (!tv.on ? 'Ligar TV' : tv.muted ? 'Ligar o som da TV' : 'Desligar TV'), tvToggle)
+  // controle remoto: pega (vai pra mochila), dá pra soltar (Q) ou arremessar (G); com ele na mão o clique esquerdo abre o controle da TV de até 10 m
+  thing(12.62, 0.45, 5.72, 'Pegar o controle da TV', ['Controle da TV. As pilhas são de marcas diferentes, claro.', 'Achou o controle! Alguém vai ficar feliz.'], (g) => { box(0.06, 0.025, 0.2, 0x1a1a1a, 0, 0, 0, g); for (let i = 0; i < 4; i++) box(0.02, 0.006, 0.02, [0xc0182c, 0x2e9a3c, 0xe0c030, 0x2e86de][i], -0.015 + (i % 2) * 0.03, 0.025, -0.05 + Math.floor(i / 2) * 0.04, g) }, false)
+  { const rid = defineItem('Controle da TV'); ITEMS[rid].use = () => { if (Math.hypot(playerPos.x - 11.95, playerPos.z - 5.7) > 10) { toast('Muito longe da TV. O sinal do controle não chega.'); return } if (state.tvBlocked) { toast('A TV está bloqueada no roteador.'); return } openRemote() } }
+  block(11.15, 5.55, 12.75, 5.95, 0.45); block(11.3, 5.68, 12.6, 5.82, 1.25, 0.55) // rack e a TV por cima
 
   // ---------- COZINHA (x 14–19, z 1–6) ----------
-  act(box(0.7, 1.8, 0.7, 0xe6e6e6, 18.55, 0, 1.5), 'Abrir geladeira', () => { state.drinks++; toast(`Pegou uma Kuat gelada 🥤 (${state.drinks})`) }); box(0.02, 0.02, 0.7, 0x888888, 18.55, 1.2, 1.5)
-  box(0.04, 0.5, 0.04, 0x444444, 18.2, 1.25, 1.3)
-  box(0.6, 0.9, 0.6, 0xd0d0d0, 18.6, 0, 2.5)
+  // itens da cozinha (definidos antes da geladeira, que dá ovo e leite)
+  const plateB = (g: THREE.Group) => { cyl(0.11, 0.015, 0xf4f4f0, 0, 0, 0, g); cyl(0.07, 0.016, 0xdedad0, 0, 0.002, 0, g) }
+  const idPrato = defineItem('Prato', plateB), idCopo = defineItem('Copo', (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g) })
+  const idPanela = defineItem('Panela', (g) => { cyl(0.1, 0.1, 0x9a9ea3, 0, 0, 0, g); box(0.15, 0.015, 0.03, 0x222222, 0.16, 0.07, 0, g) })
+  const idFrig = defineItem('Frigideira', (g) => { cyl(0.11, 0.03, 0x222226, 0, 0, 0, g); box(0.2, 0.015, 0.03, 0x222222, 0.2, 0.02, 0, g) })
+  const idColher = defineItem('Colher de pau', (g) => { box(0.025, 0.02, 0.22, 0xb98a4e, 0, 0, 0, g); box(0.05, 0.02, 0.06, 0xb98a4e, 0, 0, 0.13, g) })
+  const idOvo = defineItem('Ovo', (g) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), lm(0xf4efe0)); m.scale.y = 1.25; m.position.y = 0.037; g.add(m) })
+  const idLeite = defineItem('Leite', (g) => { box(0.07, 0.17, 0.07, 0xf4f4f0, 0, 0, 0, g); box(0.07, 0.04, 0.071, 0x2e86de, 0, 0.08, 0, g) })
+  const idMiojo = defineItem('Miojo', (g) => { box(0.12, 0.03, 0.09, 0xe0a020, 0, 0, 0, g); box(0.1, 0.005, 0.07, 0xc0182c, 0, 0.03, 0, g) })
+  const idPo = defineItem('Pó de café', (g) => { box(0.08, 0.14, 0.05, 0x6a3a1e, 0, 0, 0, g); box(0.07, 0.04, 0.052, 0xd4af37, 0, 0.08, 0, g) })
+  const idFlocao = defineItem('Flocão de milho', (g) => { box(0.1, 0.16, 0.05, 0xf0c020, 0, 0, 0, g) })
+  const idOvoFrito = defineItem('Ovo frito', (g) => { cyl(0.07, 0.01, 0xf8f4e8, 0, 0, 0, g); cyl(0.025, 0.02, 0xf0b020, 0, 0.01, 0, g) })
+  const idMiojoPronto = defineItem('Miojo pronto', (g) => { cyl(0.06, 0.06, 0xf4f4f0, 0, 0, 0, g); cyl(0.05, 0.01, 0xe8c060, 0, 0.06, 0, g) })
+  const idCuscuz = defineItem('Cuscuz', (g) => { cyl(0.07, 0.04, 0xf2d06a, 0, 0, 0, g); cyl(0.02, 0.012, 0xf4efe0, 0, 0.04, 0, g) })
+  const idCafe = defineItem('Café', (g) => { cyl(0.04, 0.07, 0xffffff, 0, 0, 0, g); cyl(0.036, 0.004, 0x3a1f10, 0, 0.07, 0, g) })
+  const idAgua = defineItem('Copo de água', (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g); cyl(0.031, 0.06, 0x7ec8ff, 0, 0.01, 0, g) })
+  const idQueimada = defineItem('Comida queimada', (g) => { cyl(0.07, 0.03, 0x1a1410, 0, 0, 0, g) })
+  fridge(18.55, 1.5, 1.8, 0xe6e6e6, 'cozinha')                                // geladeira que abre, com Kuat dentro
+  const stove = box(0.6, 0.9, 0.6, 0xd0d0d0, 18.6, 0, 2.5)
   for (const [bx, bz] of [[18.45, 2.35], [18.75, 2.35], [18.45, 2.65], [18.75, 2.65]]) cyl(0.07, 0.02, 0x111111, bx, 0.9, bz)
-  block(18.2, 1.15, 19, 2.85)
+  block(18.2, 1.15, 18.9, 1.85, 1.8); block(18.3, 2.2, 18.9, 2.8, 0.9)        // geladeira e fogão
   cabinet(14.85, 0, 1.3, 1.4, 0.9, 0.6, 1, 0xa0522d, ['Café, açúcar e bolacha maizena.', 'Panelas. Muitas panelas.', 'Um pote de farinha e saudade.'])
   cabinet(14.85, 1.5, 1.15, 1.4, 0.7, 0.3, 1, 0xa0522d, ['Copos, só copos.', 'Achou uma garrafa térmica esquecida.'])
-  cyl(0.6, 0.06, 0x8b6b43, 16.5, 0.72, 3.8); cyl(0.07, 0.72, 0x444444, 16.5, 0, 3.8)
-  for (const [cx, cz] of [[15.7, 3.8], [17.3, 3.8], [16.5, 3.0], [16.5, 4.6]]) {
-    box(0.4, 0.05, 0.4, 0xa0522d, cx, 0.45, cz); box(0.04, 0.45, 0.04, 0x444444, cx, 0, cz)
-  }
+  const mesaTop = cyl(0.6, 0.06, 0x8b6b43, 16.5, 0.72, 3.8); cyl(0.07, 0.72, 0x444444, 16.5, 0, 3.8)
+  ;([[15.7, 3.8, -Math.PI / 2], [17.3, 3.8, Math.PI / 2], [16.5, 3.0, Math.PI], [16.5, 4.6, 0]] as const).forEach(([cx, cz, yaw]) => { // cadeiras viradas pra mesa
+    sitAct(box(0.4, 0.05, 0.4, 0xa0522d, cx, 0.45, cz), [{ x: cx, y: 0.5, z: cz, yaw }], 'Sentar na cadeira'); box(0.04, 0.45, 0.04, 0x444444, cx, 0, cz)
+  })
   cyl(0.08, 0.14, 0xf1c40f, 16.5, 0.78, 3.8) // fruteira/vaso
-  block(15.8, 3.1, 17.2, 4.5)
+  block(15.8, 3.1, 17.2, 4.5, 0.77)
+
+
+  // ---------- COZINHA VIVA: despensa, pia com louça, fogão que cozinha, micro-ondas, cafeteira, filtro e mesa posta ----------
+  // armários: panelas e louça embaixo, mantimentos em cima (só aparecem com as portas abertas)
+  const SHL = 0.48, SHU = 1.88
+  thing(14.35, SHL, 1.48, 'Pegar a panela', ['Panela de pressão sem a válvula. Clássico.', 'Panela com o fundo preto de tanta história.'], (g) => { cyl(0.1, 0.1, 0x9a9ea3, 0, 0, 0, g); box(0.15, 0.015, 0.03, 0x222222, 0.16, 0.07, 0, g) }, false)
+  thing(14.72, SHL, 1.48, 'Pegar a frigideira', ['Frigideira antiaderente que já aderiu.', 'Frigideira pesada. Dá pra se defender com ela.'], (g) => { cyl(0.11, 0.03, 0x222226, 0, 0, 0, g); box(0.2, 0.015, 0.03, 0x222222, 0.2, 0.02, 0, g) }, false)
+  thing(15.05, SHL, 1.48, 'Pegar um prato', ['Prato de cerâmica com uma lasquinha.', 'Prato fundo. Serve pra tudo, inclusive pizza.'], plateB, false)
+  thing(15.32, SHL, 1.48, 'Pegar a colher de pau', ['Colher de pau: também serve de arma contra o Smoll.', 'Colher de pau da vó. Intocável.'], (g) => { box(0.025, 0.02, 0.22, 0xb98a4e, 0, 0, 0, g); box(0.05, 0.02, 0.06, 0xb98a4e, 0, 0, 0.13, g) }, false)
+  thing(14.4, SHU, 1.26, 'Pegar o miojo', ['Miojo sabor galinha caipira. A dieta do dev.', 'O último pacote. Pensa bem antes de pegar.'], (g) => { box(0.12, 0.03, 0.09, 0xe0a020, 0, 0, 0, g); box(0.1, 0.005, 0.07, 0xc0182c, 0, 0.03, 0, g) }, false)
+  thing(14.72, SHU, 1.26, 'Pegar o pó de café', ['Pó de café já pela metade. Smoll toma 6 xícaras por dia.', 'Café forte. Dá pra acordar defunto.'], (g) => { box(0.08, 0.14, 0.05, 0x6a3a1e, 0, 0, 0, g); box(0.07, 0.04, 0.052, 0xd4af37, 0, 0.08, 0, g) }, false)
+  thing(15.02, SHU, 1.26, 'Pegar o flocão de milho', ['Flocão de milho. Cuscuz de domingo.', 'Flocão: com ovo vira café da manhã de campeão.'], (g) => { box(0.1, 0.16, 0.05, 0xf0c020, 0, 0, 0, g) }, false)
+  thing(15.32, SHU, 1.26, 'Pegar um copo', ['Copo americano, o melhor copo.', 'Copo de requeijão. Todo brasileiro tem.'], (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g) }, false)
+
+  // bancada ao longo da parede norte: filtro, cafeteira, pia (com a louça suja), escorredor e micro-ondas
+  // móvel em três partes e tampo com um buraco: a cuba (x 16,3–16,8) é funda, de aço, com ralo
+  box(0.7, 0.86, 0.6, 0xe9e4d8, 15.95, 0, 1.3); box(1.35, 0.86, 0.6, 0xe9e4d8, 17.475, 0, 1.3); box(0.5, 0.62, 0.6, 0xe9e4d8, 16.55, 0, 1.3)
+  for (const [w, d, x, z] of [[0.71, 0.62, 15.955, 1.3], [1.36, 0.62, 17.475, 1.3], [0.5, 0.13, 16.55, 1.545], [0.5, 0.12, 16.55, 1.06]]) box(w, 0.04, d, 0x6b6b6b, x, 0.86, z) // tampo ao redor do buraco
+  block(15.6, 1.0, 18.15, 1.6, 0.9)
+  box(0.5, 0.02, 0.36, 0x9aa7ad, 16.55, 0.62, 1.3); cyl(0.025, 0.005, 0x222222, 16.55, 0.64, 1.3)           // fundo da cuba e ralo
+  box(0.012, 0.28, 0.36, 0x9aa7ad, 16.304, 0.62, 1.3); box(0.012, 0.28, 0.36, 0x9aa7ad, 16.796, 0.62, 1.3); box(0.5, 0.28, 0.012, 0x9aa7ad, 16.55, 0.62, 1.474); box(0.5, 0.28, 0.012, 0x9aa7ad, 16.55, 0.62, 1.126) // paredes da cuba
+  box(0.03, 0.25, 0.03, 0x999999, 16.55, 0.9, 1.08); box(0.03, 0.02, 0.2, 0x999999, 16.55, 1.13, 1.18)  // torneira (no tampo de trás)
+  const sinkFlow = cyl(0.007, 0.43, 0x7ec8ff, 16.55, 0.7, 1.27); sinkFlow.visible = false
+  let dirty = 5, clean = 0, washing = 0
+  const dirtyPlates = Array.from({ length: 6 }, (_, i) => { const m = cyl(0.1, 0.014, i % 2 ? 0xd8cfb0 : 0xcdbf9c, 16.55 + ((i * 37) % 7 - 3) * 0.012, 0.65 + i * 0.016, 1.3 + ((i * 53) % 5 - 2) * 0.012); return m })
+  const rack = new THREE.Group(); rack.position.set(17.05, 0.9, 1.3); scene.add(rack)
+  box(0.3, 0.015, 0.2, 0x888888, 0, 0, 0, rack)
+  const rackPlates = Array.from({ length: 6 }, (_, i) => box(0.2, 0.2, 0.012, 0xf6f6f2, -0.12 + i * 0.045, 0.02, 0, rack))
+  const syncDishes = () => { dirtyPlates.forEach((p, i) => (p.visible = i < dirty)); rackPlates.forEach((p, i) => (p.visible = i < clean)) }; syncDishes()
+  const wash = () => {
+    if (washing) { toast('Lavando… 🧽'); return }
+    if (!dirty) { toast('Não tem louça suja. Milagre!'); return }
+    washing = 4; sinkFlow.visible = true; toast('Lavando a louça… 🧽')
+  }
+  ticks.push((dt) => { if (washing > 0 && (washing -= dt) <= 0) { sinkFlow.visible = false; clean = Math.min(6, clean + dirty); dirty = 0; syncDishes(); toast('Louça lavada! Ficou brilhando. ✨') } })
+  const sinkHit = box(0.55, 0.3, 0.4, 0xffffff, 16.55, 0.9, 1.3); (sinkHit.material as THREE.MeshLambertMaterial).transparent = true; (sinkHit.material as THREE.MeshLambertMaterial).opacity = 0; (sinkHit.material as THREE.MeshLambertMaterial).depthWrite = false
+  act(sinkHit, () => (dirty ? `Lavar a louça (${dirty} peças sujas)` : 'Pia limpa'), wash, (id) => {
+    if (['prato', 'copo', 'panela', 'frigideira', 'colher-de-pau'].includes(id)) { toast(`${ITEMS[id].name} lavado(a). Brilhando. ✨`); return true }
+    toast('Isso não é pra lavar.'); return true
+  })
+  act(rack, () => (clean ? `Pegar um prato limpo (${clean})` : 'Escorredor vazio'), () => { if (clean && giveItem(idPrato)) { clean--; syncDishes(); toast('Pegou um prato limpo. 🍽️') } else toast('Não tem prato limpo. Lava a louça!') })
+  // filtro de água
+  const filtro = cyl(0.08, 0.3, 0xd8e4ea, 15.72, 0.9, 1.3); cyl(0.09, 0.03, 0x2e86de, 15.72, 1.2, 1.3); cyl(0.012, 0.04, 0x222222, 15.72, 0.93, 1.45).rotation.x = Math.PI / 2
+  act(filtro, 'Beber água do filtro', () => toast(pick(['Água gelada do filtro. A melhor da casa.', 'Glub. O filtro tá com mais limo que o normal.'])), (id) => {
+    if (id === idCopo) { takeItem(idCopo); giveItem(idAgua); toast('Encheu o copo de água. 💧'); return true }
+    toast('O filtro só enche copo.'); return true
+  })
+  // cafeteira: gasta pó de café, passa em 6 s e dá um café
+  const cafeBase = box(0.18, 0.04, 0.18, 0x222222, 16.02, 0.9, 1.3); box(0.18, 0.28, 0.04, 0x222222, 16.02, 0.94, 1.19); box(0.2, 0.04, 0.2, 0x222222, 16.02, 1.18, 1.3)
+  const pot = cyl(0.06, 0.16, 0xcfe8f5, 16.02, 0.94, 1.32); const led = new THREE.Mesh(new THREE.SphereGeometry(0.01, 6, 4), bm(0xc02020)); led.position.set(16.1, 0.97, 1.4); scene.add(led)
+  const potFill = cyl(0.055, 0.001, 0x3a1f10, 16.02, 0.95, 1.32)
+  let brew = 0, coffeeReady = false
+  const startBrew = () => { brew = 6; coffeeReady = false; potFill.scale.y = 1; toast('Cafeteira ligada… o cheiro já vem. ☕') }
+  ticks.push((dt) => {
+    if (brew > 0) { brew -= dt; potFill.scale.y = 1 + (1 - brew / 6) * 120; potFill.position.y = 0.95 + (potFill.scale.y * 0.001) / 2; (led.material as THREE.MeshBasicMaterial).color.set(0xe0a020); if (brew <= 0) { coffeeReady = true; (led.material as THREE.MeshBasicMaterial).color.set(0x30e060); toast('Café pronto! ☕') } }
+  })
+  act(cafeBase, () => (coffeeReady ? 'Servir o café' : brew > 0 ? 'Cafeteira passando…' : 'Fazer café (gasta pó de café)'), () => {
+    if (coffeeReady) { if (giveItem(idCafe)) { coffeeReady = false; potFill.scale.y = 1; (led.material as THREE.MeshBasicMaterial).color.set(0xc02020); toast('Serviu um café fresquinho. ☕') } return }
+    if (brew > 0) return
+    if (takeItem(idPo)) startBrew(); else toast('Sem pó de café. Procura no armário de cima.')
+  })
+  // micro-ondas: esquenta comida e bebida
+  const micro = box(0.5, 0.3, 0.36, 0xdadada, 17.7, 0.9, 1.3); box(0.3, 0.2, 0.01, 0x15151a, 17.62, 0.95, 1.485); for (let i = 0; i < 3; i++) box(0.03, 0.03, 0.01, 0x888888, 17.84, 1.0 + i * 0.05, 1.485)
+  act(micro, 'Usar o micro-ondas', () => toast(pick(['Micro-ondas: 1:00, apitou 3 vezes e ninguém foi tirar.', 'Esquentou o ar. Eficiência zero.'])), (id, kind) => {
+    if (kind === 'food' || kind === 'drink') { toast(`Esquentou ${ITEMS[id].name} por 1 min. Tá pelando. 🔥`); return true }
+    toast(id === idPrato || id === idCopo ? 'Prato vazio no micro-ondas? Pra quê?' : 'Metal e eletrônicos no micro-ondas dão faísca. Melhor não.'); return true
+  })
+  // fogão: 4 bocas com chama, receitas com o que você carrega (ovo, miojo, flocão, pó de café + panela ou frigideira)
+  const flames = [[18.45, 2.35], [18.75, 2.35], [18.45, 2.65], [18.75, 2.65]].map(([fx, fz]) => { const f = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.1, 8), bm(0xff8a20)); f.position.set(fx, 0.97, fz); f.visible = false; scene.add(f); return f })
+  let cooking = 0, ft = 0
+  ticks.push((dt) => { if (cooking > 0) { cooking -= dt; ft += dt; flames.forEach((f, i) => { f.visible = true; f.scale.y = 0.8 + Math.sin(ft * 20 + i) * 0.3 }) } else flames.forEach((f) => (f.visible = false)) })
+  const RECIPES = [
+    { name: '🍳 Ovo frito', need: [idOvo], tool: idFrig, out: idOvoFrito, msg: 'Ovo frito perfeito. A gema ficou mole.' },
+    { name: '🍜 Miojo', need: [idMiojo], tool: idPanela, out: idMiojoPronto, msg: 'Miojo pronto. Só que de verdade, em 3 minutos.' },
+    { name: '🌽 Cuscuz com ovo', need: [idFlocao, idOvo], tool: idPanela, out: idCuscuz, msg: 'Cuscuz com ovo. Café da manhã de campeão.' },
+    { name: '☕ Café na panela', need: [idPo], tool: idPanela, out: idCafe, msg: 'Café coado na panela. O cheiro invade a casa.' },
+  ]
+  const missing = (r: (typeof RECIPES)[number]) => [r.tool, ...r.need].filter((id) => !invCount(id)).map((id) => ITEMS[id].name)
+  const cook = (r: (typeof RECIPES)[number]) => {
+    if (cooking > 0) { toast('O fogão já tá ocupado.'); return }
+    const m = missing(r); if (m.length) { toast(`Faltando: ${m.join(', ')}`); return }
+    r.need.forEach((id) => takeItem(id)); cooking = 4; sizzle(0.1, 4); toast(`Cozinhando ${r.name}… 🔥`)
+    setTimeout(() => {
+      const burnt = Math.random() < 0.15; dirty = Math.min(6, dirty + 1); syncDishes()
+      if (burnt) { giveItem(idQueimada); toast('Queimou! Fumaça pra tudo que é lado. Smoll: "NÃO É MEU!" 🔥') } else { giveItem(r.out); toast(r.msg) }
+    }, 4000)
+  }
+  act(stove, 'Usar o fogão', () => openPanel('🍳 Fogão', () => RECIPES.map((r) => `${missing(r).length ? '❌' : '✅'} <b>${r.name}</b> — ${[r.tool, ...r.need].map((id) => `${invCount(id) ? '' : '<s>'}${ITEMS[id].name}${invCount(id) ? '' : '</s>'}`).join(' + ')}`).join('<br>') + '<br><br><i>Panela e frigideira não gastam. Ingredientes estão na geladeira e no armário de cima.</i>',
+    RECIPES.map((r) => ({ t: r.name, fn: () => cook(r) }))))
+  world.cozinha.cozinhar = () => { cooking = 4; sizzle(0.1, 4); dirty = Math.min(6, dirty + 1); syncDishes(); toast('Smoll botou um miojo no fogo e já tá fuçando no celular. 🍜') }
+  world.cozinha.louca = () => wash()
+  world.cozinha.cafe = () => { if (!brew && !coffeeReady) { startBrew() } setTimeout(() => { toast('Smoll tomou o café inteiro. ☕'); coffeeReady = false; potFill.scale.y = 1; (led.material as THREE.MeshBasicMaterial).color.set(0xc02020) }, 7000) }
+  // mesa posta: pratos e copos pegáveis; comer na mesa
+  for (const [px, pz] of [[16.12, 3.8], [16.88, 3.8], [16.5, 3.42], [16.5, 4.18]]) thing(px, 0.78, pz, 'Pegar o prato', ['Prato da mesa. Ainda tem farelo da janta.', 'Prato quase limpo. Quase.'], plateB, false)
+  for (const [px, pz] of [[16.3, 3.55], [16.78, 4.05]]) thing(px, 0.78, pz, 'Pegar o copo', ['Copo da mesa, cheio de Kuat velha.', 'Copo americano. Todo mundo tem.'], (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g) }, false)
+  act(mesaTop, 'Sentar e comer na mesa', () => toast('Mesa redonda com 4 cadeiras. O Smoll nunca teve visita pra ocupar.'), (id, kind) => {
+    if (kind === 'food') { toast(`Comeu ${ITEMS[id].name} na mesa, sentado e tudo. Que luxo. 🍽️`); return 'consume' }
+    if (kind === 'drink') { toast(`Bebeu ${ITEMS[id].name} na mesa. Saúde!`); return 'consume' }
+    toast('Isso não se come.'); return true
+  })
 
   // ---------- VARANDA: rede (x 1–6, z 11–15) ----------
   const rede = tex(64, 64, (g, w, h) => {
@@ -277,21 +644,21 @@ export function buildProps(scene: THREE.Scene) {
   for (let i = 0; i < rp.count; i++) { const t = rp.getZ(i) / 1.2; rp.setY(i, 1.25 - 0.55 * (1 - t * t) + Math.abs(rp.getX(i)) * 0.25) } // curva da rede
   rg.computeVertexNormals()
   const redeMesh = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ map: rede, side: THREE.DoubleSide })); redeMesh.position.set(1.8, 0, 12.8); scene.add(redeMesh)
-  act(redeMesh, 'Balançar na rede', () => toast('Aaaaah. Vida de rondoniense.'))
+  sitAct(redeMesh, [{ x: 1.8, y: 0.72, z: 12.8, yaw: -Math.PI / 2 }], 'Deitar na rede')
   cyl(0.05, 1.5, 0x5a3a22, 1.8, 0, 11.45); cyl(0.05, 1.5, 0x5a3a22, 1.8, 0, 14.15)
-  block(1.4, 11.6, 2.2, 14.0)
+  block(1.4, 11.6, 2.2, 14.0, 0.7)
 
   // ---------- QUINTAL (céu aberto, junto da garagem: x 20–28, z 6–16, no máximo do tamanho da casa) ----------
   const ball = (r: number, c: number, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), lm(c)); m.position.set(x, y, z); scene.add(m)
     return m
   }
-  const manga = () => { state.mangas++; toast(`Pegou uma manga 🥭 (${state.mangas})`) }
+  const manga = () => { if (giveItem('manga')) toast('Pegou uma manga 🥭') }
   const mangueira = (x: number, z: number, s: number) => {
     cyl(0.2 * s, 1.8 * s, 0x5a3a22, x, 0, z)
     for (const [ox, oy, oz, r] of [[0, 2.5, 0, 1.2], [0.8, 2.2, 0.3, 0.9], [-0.8, 2.3, -0.2, 1.0], [0.2, 3.2, -0.5, 0.8], [-0.3, 2.1, 0.9, 0.8]]) act(ball(r * s, 0x2f6b2f, x + ox * s, oy * s, z + oz * s), 'Pegar manga', manga)
     for (let i = 0; i < 9; i++) act(ball(0.1, 0xf0a020, x + Math.cos(i * 2.4) * 1.2 * s, (1.7 + (i % 3) * 0.4) * s, z + Math.sin(i * 2.4) * 1.2 * s), 'Pegar manga', manga) // mangas
-    block(x - 0.3, z - 0.3, x + 0.3, z + 0.3)
+    block(x - 0.3, z - 0.3, x + 0.3, z + 0.3, 3)
   }
   mangueira(25.6, 9.2, 1.2); mangueira(21.3, 14.8, 1)
   // varal (ao lado da garagem): camisas, bermudas, cuecas e sutiãs pendurados com prendedor, sem colisão
@@ -311,11 +678,11 @@ export function buildProps(scene: THREE.Scene) {
     }
   })
   const LINE: ['shirt' | 'shorts' | 'briefs' | 'bra', string, number, number][] = [ // tipo, cor, largura, altura (m)
-    ['shirt', '#d64532', 0.55, 0.6], ['briefs', '#f2f2ee', 0.3, 0.26], ['shorts', '#2f7fc1', 0.42, 0.5], ['bra', '#f06ea9', 0.36, 0.24], ['shirt', '#e0b21c', 0.55, 0.6],
-    ['briefs', '#3fae5a', 0.3, 0.26], ['shorts', '#b7a27a', 0.42, 0.5], ['bra', '#222222', 0.36, 0.24], ['shirt', '#f2f2ee', 0.55, 0.6], ['briefs', '#2f7fc1', 0.3, 0.26],
+    ['shirt', '#d64532', 0.45, 0.5], ['briefs', '#f06ea9', 0.3, 0.26], ['shorts', '#2f7fc1', 0.4, 0.46], ['bra', '#f06ea9', 0.36, 0.24], ['briefs', '#222222', 0.3, 0.26], ['shirt', '#e0b21c', 0.45, 0.5],
+    ['bra', '#b34de0', 0.36, 0.24], ['briefs', '#c0182c', 0.3, 0.26], ['shorts', '#b7a27a', 0.4, 0.46], ['bra', '#222222', 0.36, 0.24], ['briefs', '#f2f2ee', 0.3, 0.26], ['shirt', '#f2f2ee', 0.45, 0.5], ['bra', '#f2c4dc', 0.36, 0.24],
   ]
   LINE.forEach(([kind, color, w, h], i) => {
-    const pivot = new THREE.Group(); pivot.position.set(21.45 + i * 0.5, 1.94, 7.4); scene.add(pivot)       // gira em torno da linha
+    const pivot = new THREE.Group(); pivot.position.set(21.4 + i * 0.4, 1.94, 7.4); scene.add(pivot)       // gira em torno da linha
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: garment(kind, color), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide }))
     m.position.y = -h / 2 - 0.02; pivot.add(m)
     for (const dx of [-w * 0.3, w * 0.3]) box(0.03, 0.07, 0.03, 0xc8a165, dx, -0.06, 0.012, pivot)             // prendedores
@@ -324,22 +691,22 @@ export function buildProps(scene: THREE.Scene) {
   // tanque de lavar roupa + torneira (junto do muro leste)
   act(box(0.6, 0.85, 0.9, 0xbfc4c8, 27.45, 0, 15.2), 'Abrir a torneira', () => toast('Água quente. É Rondônia, mano.')); box(0.4, 0.05, 0.7, 0x4a5a63, 27.45, 0.8, 15.2)
   cyl(0.02, 0.3, 0xcccccc, 27.2, 1.0, 15.2)
-  block(27.1, 14.75, 27.8, 15.65)
+  block(27.1, 14.75, 27.8, 15.65, 0.85)
   // churrasqueira (muro sul)
   box(1.1, 0.9, 0.55, 0xa0522d, 26.2, 0, 15.65); const coal = box(0.95, 0.04, 0.4, 0x222222, 26.2, 0.9, 15.65)
   const fire = light(0xff6a20, 0, 5, 26.2, 1.3, 15.3)
   act(coal, () => (fire.intensity ? 'Apagar o carvão' : 'Acender o carvão'), () => { fire.intensity = fire.intensity ? 0 : 4; (coal.material as THREE.MeshLambertMaterial).color.set(fire.intensity ? 0xff4a10 : 0x222222); if (fire.intensity) toast('Cheiro de churrasco. Cadê a carne?') })
   box(0.25, 1.4, 0.25, 0xa0522d, 26.2, 0, 15.85)
-  block(25.6, 15.3, 26.8, 15.95)
+  block(25.6, 15.3, 26.8, 15.95, 0.9)
   // mesa e cadeiras de plástico
   cyl(0.55, 0.05, 0xffffff, 24.3, 0.72, 13.6); cyl(0.05, 0.72, 0xdddddd, 24.3, 0, 13.6)
   for (const [cx, cz] of [[23.5, 13.6], [25.1, 13.6], [24.3, 12.8]]) { box(0.42, 0.04, 0.42, 0xffffff, cx, 0.45, cz); box(0.04, 0.45, 0.04, 0xdddddd, cx, 0, cz) }
-  block(23.1, 12.5, 25.5, 14.7)
+  block(23.1, 12.5, 25.5, 14.7, 0.77)
   // horta (canteiros com terra vermelha)
   for (const hx of [22.4, 23.7]) { box(1.0, 0.25, 0.6, 0x7a3b22, hx, 0, 15.6); for (let i = 0; i < 4; i++) ball(0.14, 0x3fa34d, hx - 0.35 + i * 0.23, 0.38, 15.6) }
-  block(21.8, 15.2, 24.2, 16)
+  block(21.8, 15.2, 24.2, 16, 0.3)
   // caixa d'água
-  cyl(0.6, 1.2, 0x1e6fb8, 26.8, 0, 9.0); block(26.2, 8.4, 27.4, 9.6)
+  cyl(0.6, 1.2, 0x1e6fb8, 26.8, 0, 9.0); block(26.2, 8.4, 27.4, 9.6, 1.2)
   // muro de fundos do vizinho (as janelas dos fundos da casa dão pra ele)
   box(30, 2.2, 0.3, 0xd8cdb8, 5.5, 0, 17.2)
 
@@ -349,24 +716,58 @@ export function buildProps(scene: THREE.Scene) {
   box(0.05, 0.05, 0.05, 0xc9b037, -0.05, 1.0, 0.85, door)
   act(dm, () => (state.doorOpen ? 'Fechar porta' : 'Abrir porta'), () => (state.doorOpen = !state.doorOpen))
 
-  // ---------- RUA (deslocada 9 m: calçada x 29–31, asfalto 31–37, calçada 37–39; paredes invisíveis depois) ----------
-  const streetG = new THREE.Group(); streetG.position.x = 9; scene.add(streetG)
-  root = streetG; ox = 9
-  box(6, 0.01, 200, 0x8d8c86, 25, -0.015, 11); box(2, 0.01, 200, 0xb8b8b0, 21, -0.015, 11); box(2, 0.01, 200, 0xb8b8b0, 29, -0.015, 11)
-  box(0.2, 0.1, 200, 0xc9c6bc, 21.9, 0, 11); box(0.2, 0.1, 200, 0xc9c6bc, 28.1, 0, 11) // meio-fio
-  // rua transversal (esquina): asfalto z 25–31, calçadas z 23–25 e 31–33
-  box(300, 0.01, 6, 0x8d8c86, 25, -0.015, 28); box(300, 0.01, 2, 0xb8b8b0, 25, -0.015, 24); box(300, 0.01, 2, 0xb8b8b0, 25, -0.015, 32)
-  const poste = (x: number, z: number) => {
-    cyl(0.07, 5, 0x666666, x, 0, z); box(0.9, 0.06, 0.06, 0x666666, x + (x < 25 ? 0.4 : -0.4), 4.9, z)
-    const l = new THREE.Mesh(new THREE.SphereGeometry(0.13), bm(0xfff2c0)); l.position.set(x + (x < 25 ? 0.8 : -0.8), 4.85, z); root.add(l)
-    block(x - 0.1, z - 0.1, x + 0.1, z + 0.1)
+  // ---------- BAIRRO (planta em bairro.ts, a partir da foto de satélite): ruas, casas dos vizinhos, escola, postes ----------
+  const ASPH = 0x8d8c86, WALK = 0xb8b8b0, CURB = 0xc9c6bc
+  // trecho de rua: asfalto de 6 m com calçadas de 2 m (as calçadas ficam mais baixas, o asfalto cobre os cruzamentos)
+  const rua = (axis: 'z' | 'x', c: number, a: number, b: number) => {
+    const L = b - a, m = (a + b) / 2
+    if (axis === 'z') { box(6, 0.01, L, ASPH, c, -0.012, m); box(2, 0.01, L, WALK, c - 4, -0.016, m); box(2, 0.01, L, WALK, c + 4, -0.016, m) }
+    else { box(L, 0.01, 6, ASPH, m, -0.012, c); box(L, 0.01, 2, WALK, m, -0.016, c - 4); box(L, 0.01, 2, WALK, m, -0.016, c + 4) }
   }
-  for (const z of [4, 12, 20]) { poste(21.4, z); poste(28.6, z + 4) }
-  const park = (c: number, x: number, z: number, rot: number) => { const k = makeCar(c); k.position.set(x, 0, z); k.rotation.y = rot; root.add(k); block(x - 1, z - 2.1, x + 1, z + 2.1) }
-  park(0x2a5db0, 23.3, 15, Math.PI / 2); park(0xdddddd, 27, 6, -Math.PI / 2)
-  // casa de vizinho genérica: frente virada pra +x no espaço local, girada por `rot`
+  const curbs = (axis: 'z' | 'x', off: number, from: number, to: number, cuts: [number, number][]) => { // meio-fio, interrompido nos cruzamentos
+    const seg = (a: number, b: number) => { if (b > a) axis === 'z' ? box(0.2, 0.1, b - a, CURB, off, 0, (a + b) / 2) : box(b - a, 0.1, 0.2, CURB, (a + b) / 2, 0, off) }
+    let q = from
+    for (const [c0, c1] of [...cuts].sort((x, y) => x[0] - y[0])) { seg(q, c0); q = c1 }
+    seg(q, to)
+  }
+  rua('z', UM, WORLD.z0, WORLD.z1); rua('z', MAC, WORLD.z0, WORLD.z1); rua('z', JOIN, PAL - 5, WORLD.z1)
+  rua('x', PAL, UM, WORLD.x1); rua('x', BAR, WORLD.x0, WORLD.x1)
+  const BARc: [number, number] = [BAR - 5, BAR + 5], PALc: [number, number] = [PAL - 5, PAL + 5]
+  const UMc: [number, number] = [UM - 5, UM + 5], MACc: [number, number] = [MAC - 5, MAC + 5], JOINc: [number, number] = [JOIN - 5, JOIN + 5]
+  curbs('z', UM - 3.1, WORLD.z0, WORLD.z1, [BARc]); curbs('z', UM + 3.1, WORLD.z0, WORLD.z1, [PALc, BARc])
+  curbs('z', MAC - 3.1, WORLD.z0, WORLD.z1, [BARc]); curbs('z', MAC + 3.1, WORLD.z0, WORLD.z1, [BARc])
+  curbs('z', JOIN - 3.1, PAL + 5, WORLD.z1, [BARc]); curbs('z', JOIN + 3.1, PAL + 5, WORLD.z1, [BARc])
+  curbs('x', PAL - 3.1, UM + 5, WORLD.x1, []); curbs('x', PAL + 3.1, UM + 5, WORLD.x1, [JOINc])
+  curbs('x', BAR - 3.1, WORLD.x0, WORLD.x1, [MACc, UMc, JOINc]); curbs('x', BAR + 3.1, WORLD.x0, WORLD.x1, [MACc, UMc, JOINc])
+  const poste = (x: number, z: number, dir: number) => { // poste de luz com braço pra rua
+    cyl(0.07, 5, 0x666666, x, 0, z); box(0.9, 0.06, 0.06, 0x666666, x + dir * 0.4, 4.9, z)
+    const l = new THREE.Mesh(new THREE.SphereGeometry(0.13), bm(0xfff2c0)); l.position.set(x + dir * 0.8, 4.85, z); scene.add(l)
+    block(x - 0.1, z - 0.1, x + 0.1, z + 0.1, 5)
+  }
+  for (let z = WORLD.z0 + 10; z < WORLD.z1 - 10; z += 26) { if (Math.abs(z - BAR) > 8) poste(30.4, z, 1); if (Math.abs(z + 13 - BAR) > 8 && Math.abs(z + 13 - PAL) > 8) poste(37.6, z + 13, -1) }
+  const park = (c: number, x: number, z: number, rot: number) => { const k = makeCar(c); k.position.set(x, 0, z); k.rotation.y = rot; scene.add(k); const n0 = blockers.length; block(x - 0.65, z - 1.5, x + 0.65, z + 1.5, 0.56); block(x - 0.55, z - 0.8, x + 0.55, z + 0.8, 0.9); regVeh(k, 'car', n0, [0.15, 0.68, -0.28], 2.95, 1.3, 0.56) }
+  park(0x2a5db0, 32.3, 15, Math.PI / 2); park(0xdddddd, 36, 6, -Math.PI / 2); park(0xb8b8b8, 36, 52, -Math.PI / 2); park(0x8a3b1f, 32.3, 70, Math.PI / 2)
+  // nome da rua pintado no asfalto
+  const roadText = tex(512, 128, (g, w, h) => { g.fillStyle = 'rgba(240,240,236,0.85)'; g.font = 'bold 88px sans-serif'; g.textAlign = 'center'; g.fillText(PLACE.street.replace('Rua ', 'R. '), w / 2, 98) })
+  for (const rz of [11, -60, 90, 170]) {
+    const rt = new THREE.Group(); rt.position.set(UM, 0.012, rz); rt.rotation.y = Math.PI / 2; scene.add(rt)
+    const rtm = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: roadText, transparent: true, depthWrite: false })); rtm.rotation.x = -Math.PI / 2; rt.add(rtm)
+  }
+  // placas de rua (um plano pra cada lado, senão o texto sai espelhado) e placa de 20 km/h
+  const plate = (px: number, pz: number, text: string, y: number, c: string, sub?: string) => {
+    const t = tex(256, 64, (g, w, h) => { g.fillStyle = c; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = `bold ${sub ? 28 : 30}px sans-serif`; g.fillText(text, w / 2, sub ? 32 : 42); if (sub) { g.font = '15px sans-serif'; g.fillText(sub, w / 2, 54) } })
+    for (const [rot, dz] of [[0, 0.03], [Math.PI, -0.03]]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.28), new THREE.MeshBasicMaterial({ map: t })); m.position.set(px, y, pz + dz); m.rotation.y = rot; scene.add(m) }
+  }
+  cyl(0.04, 2.7, 0x666666, 38.6, 0, PAL + 6.2); plate(38.6, PAL + 6.2, PLACE.street, 2.5, '#1e6fb8', PLACE.sector); plate(38.6, PAL + 6.2, PLACE.cross, 2.15, '#2e8b57')   // esquina da Palomas
+  cyl(0.04, 2.7, 0x666666, 30.6, 0, BAR - 5.8); plate(30.6, BAR - 5.8, PLACE.street, 2.5, '#1e6fb8', PLACE.sector); plate(30.6, BAR - 5.8, 'R. Barreiras', 2.15, '#2e8b57')  // esquina da Barreiras
+  const speed = tex(128, 128, (g, w, h) => { g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill(); g.strokeStyle = '#d02020'; g.lineWidth = 12; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.stroke(); g.fillStyle = '#111'; g.font = 'bold 56px sans-serif'; g.textAlign = 'center'; g.fillText('20', 64, 84) })
+  cyl(0.04, 2.4, 0x666666, 29.4, 0, 26)
+  for (const [r0, dx] of [[0, -0.03], [Math.PI, 0.03]]) { const sp = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({ map: speed, transparent: true })); sp.position.set(29.4 + dx, 2.3, 26); sp.rotation.y = r0 + Math.PI / 2; scene.add(sp) }
+  block(29.3, 25.9, 29.5, 26.1)
+
+  // casa de vizinho genérica: frente virada pra +x no espaço local, girada por `rot`; `simple` = só corpo, telhado, muro e portão (casas longe)
   const pastel = [0xf2d7a1, 0xc9e0b3, 0xf0b6a8, 0xb8d4e8, 0xe8e0c8]
-  type CasaOpt = { solar?: boolean; body?: number; wall?: number; gate?: 'rust' | 'chevron' | 'white' | 'galv'; roof?: number; tank?: boolean; mail?: boolean; meter?: boolean; tree?: boolean }
+  type CasaOpt = { simple?: boolean; solar?: boolean; body?: number; wall?: number; gate?: 'rust' | 'chevron' | 'white' | 'galv'; roof?: number; tank?: boolean; mail?: boolean; meter?: boolean; tree?: boolean }
   const gateMats: Record<string, THREE.Material> = {}
   const gateMat = (k: string) => (gateMats[k] ??= new THREE.MeshBasicMaterial({
     side: THREE.DoubleSide, transparent: k === 'white' || k === 'rust', alphaTest: k === 'white' || k === 'rust' ? 0.5 : 0,
@@ -382,8 +783,8 @@ export function buildProps(scene: THREE.Scene) {
       }
     }),
   }))
-  const hipRoof = (g: THREE.Object3D, w: number, d: number, color: number) => {
-    const hx = d / 2 + 0.25, hz = w / 2 + 0.25, y0 = 3.2, y1 = 4.5
+  const hipRoof = (g: THREE.Object3D, w: number, d: number, color: number, y0 = 3.2, y1 = 4.5) => {
+    const hx = d / 2 + 0.25, hz = w / 2 + 0.25
     const c1 = [-hx, y0, -hz], c2 = [hx, y0, -hz], c3 = [hx, y0, hz], c4 = [-hx, y0, hz]
     const alongX = hx >= hz, r = Math.abs(hx - hz)
     const r1 = alongX ? [-r, y1, 0] : [0, y1, -r], r2 = alongX ? [r, y1, 0] : [0, y1, r]
@@ -392,15 +793,28 @@ export function buildProps(scene: THREE.Scene) {
       ? [...tri(c4, c3, r2, c4, r2, r1), ...tri(c2, c1, r1, c2, r1, r2), ...tri(c1, c4, r1), ...tri(c3, c2, r2)]
       : [...tri(c2, c3, r2, c2, r2, r1), ...tri(c4, c1, r1, c4, r1, r2), ...tri(c1, c2, r1), ...tri(c3, c4, r2)]
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals()
-    g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })))
+    const mesh = new THREE.Mesh(geo, roofMats[color] ??= new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })); g.add(mesh)
+    const sw = Math.abs(Math.sin(g.rotation.y)) > 0.5, ex = sw ? hz : hx, ez = sw ? hx : hz // o telhado vira superfície pisável
+    roofRects.push({ x0: g.position.x - ex, x1: g.position.x + ex, z0: g.position.z - ez, z1: g.position.z + ez, y0, y1 })
+    return mesh
   }
+  // retângulo no mundo de uma caixa local (lx, lz) de meia-largura (hx, hz) num grupo girado de 0, ±90° ou 180°
+  const wrect = (x: number, z: number, rot: number, lx: number, lz: number, hx: number, hz: number): [number, number, number, number] => {
+    const c = Math.cos(rot), sn = Math.sin(rot), cx = x + lx * c + lz * sn, cz = z - lx * sn + lz * c, sw = Math.abs(sn) > 0.5
+    const ex = sw ? hz : hx, ez = sw ? hx : hz
+    return [cx - ex, cz - ez, cx + ex, cz + ez]
+  }
+  const roofMats: Record<number, THREE.Material> = {}
   const casa = (x: number, z: number, w: number, d: number, rot: number, i: number, o: CasaOpt = {}) => {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; root.add(g)
-    box(d, 3.2, w, o.body ?? pastel[i % 5], 0, 0, 0, g); hipRoof(g, w, d, o.roof ?? [0x55585c, 0x6e7176, 0x4a4d52, 0xb04a28][i % 4])                       // corpo + telhado de quatro águas
-    if (d > w && (o.solar ?? i % 3 === 1)) { const sp = box(Math.min(2.6, d * 0.4), 0.06, 1.2, 0x1b3a73, 0, 3.95, w * 0.17, g); sp.rotation.x = Math.atan(1.3 / (w / 2 + 0.25)) } // placa solar no telhado
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; scene.add(g); culls.push(g)
+    box(d, 3.2, w, o.body ?? pastel[i % 5], 0, 0, 0, g); hipRoof(g, w, d, o.roof ?? [0x55585c, 0x6e7176, 0x4a4d52, 0x5d6065, 0x484b50, 0x6a6d72, 0xb04a28][Math.floor(Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1 * 7)])                       // corpo + telhado de quatro águas
     const wx = d / 2 + 0.7                                                                                         // linha do muro
     box(0.25, 2.0, w + 0.6, o.wall ?? 0xd8cdb8, wx, 0, 0, g)
+    block(...wrect(x, z, rot, 0, 0, d / 2, w / 2), 3.2); block(...wrect(x, z, rot, wx, 0, 0.125, (w + 0.6) / 2), 2.0) // casa e muro: sólidos, dá pra subir (muro 2 m → casa 3,2 m → telhado)
     const gp = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.7), o.gate ? gateMat(o.gate) : lm(0x4b5a63)); gp.position.set(wx - 0.14, 0.9, w * 0.1); gp.rotation.y = Math.PI / 2; g.add(gp)
+    if (Math.abs(Math.sin(x * 3.1 + z * 5.7)) > 0.6) { cyl(0.12, 1.6, 0x5a3a22, -d / 2 - 3, 0, 0.5, g); const cr = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 6), lm(0x2f6b2f)); cr.position.set(-d / 2 - 3, 2.6, 0.5); g.add(cr) } // árvore no quintal
+    if (o.simple) return                                                                                           // casas longe: sem detalhes
+    if (d > w && (o.solar ?? i % 3 === 1)) { const sp = box(Math.min(2.6, d * 0.4), 0.06, 1.2, 0x1b3a73, 0, 3.95, w * 0.17, g); sp.rotation.x = Math.atan(1.3 / (w / 2 + 0.25)) } // placa solar no telhado
     box(0.06, 2.1, 0.95, 0x6b3a1e, d / 2 + 0.01, 0, -w * 0.28, g)                                                   // porta
     for (const dz of [w * 0.12, w * 0.3]) box(0.06, 1.0, 0.9, 0x9fd0e8, d / 2 + 0.01, 1.1, dz, g)                    // janelas da frente
     for (const sx of [-1, 1]) for (const dx of [-d / 4, d / 4]) box(0.9, 1.0, 0.06, 0x9fd0e8, dx, 1.1, sx * (w / 2 + 0.01), g) // janelas laterais
@@ -411,57 +825,71 @@ export function buildProps(scene: THREE.Scene) {
       const tx = d / 2 + 2.6, tz = w * 0.3
       cyl(0.12, 1.8, 0x5a3a22, tx, 0, tz, g)
       for (const [dx, dy, dz, rr] of [[0, 2.6, 0, 1.2], [0.5, 2.2, 0.4, 0.9], [-0.5, 2.3, -0.3, 0.9]]) { const m = new THREE.Mesh(new THREE.SphereGeometry(rr, 10, 8), lm(0x2f6b2f)); m.position.set(tx + dx, dy, tz + dz); g.add(m) }
-      if (rot === Math.PI) block(x - tx - 0.3, z - tz - 0.3, x - tx + 0.3, z - tz + 0.3)
+      if (rot === Math.PI) block(x - tx - 0.3, z - tz - 0.3, x - tx + 0.3, z - tz + 0.3, 3)
     }
   }
-  const N = Math.PI / 2
-  // do outro lado da rua (viradas pra -x) — só até a esquina
-  const EAST: CasaOpt[] = [
-    { body: 0x8e9aa8, wall: 0xb9ab92, gate: 'white', roof: 0x77736f, tree: true, mail: true },
-    { body: 0x35c2b5, wall: 0x35c2b5, gate: 'galv', roof: 0x8a3b1f, tree: true },
-    { body: 0xe8e0c8, wall: 0xd8cdb8, gate: 'rust', roof: 0xb04a28, mail: true, tree: true },
+  const PRESETS: CasaOpt[] = [
+    { body: 0xf2d7a1, wall: 0xd8cdb8, gate: 'rust' }, { body: 0x8e9aa8, wall: 0xb9ab92, gate: 'white', mail: true }, { body: 0x35c2b5, wall: 0x35c2b5, gate: 'galv' },
+    { body: 0xe8e0c8, wall: 0xa5a8a6, gate: 'rust', meter: true }, { body: 0xc9e0b3, wall: 0xd8cdb8, gate: 'white' }, { body: 0xf0b6a8, wall: 0x8a5a5c, gate: 'galv', mail: true },
+    { body: 0xb8d4e8, wall: 0xb9ab92, gate: 'chevron' }, { body: 0xc9a97d, wall: 0x3b3836, gate: 'chevron', tank: true }, { body: 0xa98ad1, wall: 0xa5a8a6, gate: 'rust', mail: true, meter: true },
   ]
-  for (let i = 0, z0 = -60; z0 < 20; z0 += 7.5, i++) casa(33.3, z0, 5.4, 5, Math.PI, i, EAST[i % 3])
-  for (let i = 0, z0 = 61; z0 < 90; z0 += 7.5, i++) casa(33.3, z0, 5.4, 5, Math.PI, i + 2, EAST[(i + 1) % 3])
-  // Centro Municipal de Educação Infantil, na esquina da R. Palomas (do outro lado da rua): prédio colorido com telhado de cerâmica
+  const near = (x: number, z: number) => Math.hypot(x - 20, z - 8) < 55 // detalhes (portas, janelas...) só perto da casa; longe, casas simples
+  // fileira de casas ao longo de uma rua N–S: lado 'W' (de frente pro leste) ou 'E' (de frente pro oeste), lotes de ~9 m
+  const lotsNS = (c: number, side: 'W' | 'E', a: number, b: number, seed: number, skip: (z: number) => boolean = () => false) => {
+    for (let z = a, i = 0; z <= b; z += 12, i++) {
+      if (skip(z) || Math.abs(z - BAR) < 8) continue
+      const d = [14, 18, 12, 16, 20][(i + seed) % 5], w = 8.4 + (((i * 7 + seed) % 3) * 0.8)
+      const cx = side === 'W' ? c - 6 - d / 2 : c + 6 + d / 2
+      casa(cx, z, w, d, side === 'W' ? 0 : Math.PI, i + seed, { ...PRESETS[(i * 3 + seed) % PRESETS.length], tree: side === 'E' && i % 2 === 0, simple: !near(cx, z), solar: Math.abs(Math.sin(i * 5.3 + seed)) > 0.55 })
+    }
+  }
+  // fileira ao longo de uma rua E–W: side +1 = lado sul (de frente pro norte), −1 = lado norte (de frente pro sul)
+  const lotsEW = (c: number, side: 1 | -1, a: number, b: number, seed: number, streets: number[]) => {
+    for (let x = a, i = 0; x <= b; x += 12, i++) {
+      if (streets.some((st) => Math.abs(x - st) < 8)) continue
+      const d = [12, 14, 13][(i + seed) % 3], w = 8.4 + (((i * 5 + seed) % 3) * 0.8), cz = c + side * (6 + d / 2)
+      casa(x, cz, w, d, side === 1 ? Math.PI / 2 : -Math.PI / 2, i + seed, { ...PRESETS[(i * 2 + seed) % PRESETS.length], simple: true, solar: Math.abs(Math.sin(i * 4.1 + seed)) > 0.6 })
+    }
+  }
+  // loja de bairro da foto: prédio largo com vitrine, toldo e placa
+  const loja = (x: number, z: number, rot: number, w: number, d: number, nome: string, sub: string, cor: string, corTxt = '#fff') => {
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; scene.add(g)
+    box(d, 3.4, w, 0xe8e2d4, 0, 0, 0, g); hipRoof(g, w, d, 0x5d6065); block(...wrect(x, z, rot, 0, 0, d / 2, w / 2), 3.4)
+    const fx = d / 2 + 0.02
+    box(0.08, 2.4, w - 2, 0x8fc4dd, fx, 0.2, 0, g)                                          // vitrine de vidro
+    box(0.8, 0.12, w - 1, cor === '#1e3a8a' ? 0x1e3a8a : 0xc0392b, fx + 0.4, 2.7, 0, g)     // toldo
+    const tp = tex(512, 128, (gc, ww, hh) => { gc.fillStyle = cor; gc.fillRect(0, 0, ww, hh); gc.fillStyle = corTxt; gc.textAlign = 'center'; gc.font = 'bold 54px sans-serif'; gc.fillText(nome, ww / 2, 62); gc.font = '30px sans-serif'; gc.fillText(sub, ww / 2, 104) })
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 7), 1.7), new THREE.MeshBasicMaterial({ map: tp })); pl.position.set(fx + 0.06, 3.0, 0); pl.rotation.y = Math.PI / 2; g.add(pl)
+    box(0.06, 2.1, 1.1, 0x333333, fx + 0.02, 0, w * 0.32, g)                                // porta
+  }
+  loja(MAC + 6 + 7.5, 14, Math.PI, 12, 15, 'Moda Exata', 'Loja de Roupa', '#1e3a8a')            // atrás da casa, de frente pra Macaúbas
+  loja(MAC + 6 + 7.5, 111, Math.PI, 12, 15, 'LAGO', 'Advocacia e Assessoria Jurídica', '#111827')   // perto da esquina com a Barreiras
+  // os vizinhos reais da casa (Street View): lilás com muro cinza ao norte; muro escuro, portão de madeira e caixa d'água azul ao sul
+  casa(21, -6, 8, 14, 0, 0, { body: 0xa98ad1, wall: 0xa5a8a6, roof: 0x7a2e24, gate: 'rust', mail: true, meter: true })
+  casa(21, 20.4, 5, 14, 0, 4, { body: 0xc9a97d, wall: 0x3b3836, gate: 'chevron', roof: 0x6b3a22, tank: true, meter: true })
+  lotsNS(UM, 'W', WORLD.z0, WORLD.z1, 1, (z) => z > -13 && z < 27)                                     // Umuarama, lado da casa
+  lotsNS(UM, 'E', WORLD.z0, WORLD.z1, 2, (z) => z < PAL + 8)                                            // Umuarama, do outro lado (a escola ocupa o trecho ao norte da Palomas)
+  lotsNS(JOIN, 'W', PAL + 8, WORLD.z1, 3); lotsNS(JOIN, 'E', PAL + 8, WORLD.z1, 4)                      // Joinville (começa na Palomas)
+  lotsNS(MAC, 'E', WORLD.z0, WORLD.z1, 5, (z) => Math.abs(z - 14) < 9 || Math.abs(z - 111) < 9)         // Macaúbas, atrás da casa (menos onde ficam as lojas)
+  lotsNS(MAC, 'W', WORLD.z0, WORLD.z1, 7)
+  lotsEW(BAR, 1, WORLD.x0, WORLD.x1, 1, [UM, MAC, JOIN]); lotsEW(BAR, -1, WORLD.x0, WORLD.x1, 2, [UM, MAC, JOIN])  // Barreiras, dois lados
+  lotsEW(PAL, 1, JOIN + 8, WORLD.x1, 4, []); lotsEW(PAL, -1, JOIN + 8, WORLD.x1, 6, [])                // Palomas além da Joinville
+
+  // Centro Municipal de Educação Infantil: do outro lado da Umuarama, ao norte da Palomas; prédios coloridos de telha vermelha
   const escolaTex = tex(512, 128, (g, w, h) => { ['#2a6fc9', '#f08a24', '#f4f1e8', '#2a6fc9', '#f08a24', '#f4f1e8', '#2a6fc9', '#f08a24'].forEach((c, i) => { g.fillStyle = c; g.fillRect(i * 64, 0, 64, h) }) })
-  const sg = new THREE.Group(); sg.position.set(49, 0, 50); root.add(sg)
-  box(14, 3.2, 18, new THREE.MeshLambertMaterial({ map: escolaTex }), 0, 0, 0, sg); hipRoof(sg, 18, 14, 0xb04a28)
-  box(0.25, 1.2, 20, 0xf08a24, -8.8, 0, 0, sg)                                                              // muro baixo colorido
-  box(0.06, 2.2, 1.6, 0x2a6fc9, -7.01, 0, 0, sg)                                                            // portão de entrada
-  for (const dz of [-6, -3.5, 3.5, 6]) box(0.06, 1.1, 1.4, 0x9fd0e8, -7.01, 1.1, dz, sg)                    // janelas
+  const escolaM = new THREE.MeshLambertMaterial({ map: escolaTex })
+  const ala = (cx: number, cz: number, dx: number, dz: number) => { const g = new THREE.Group(); g.position.set(cx, 0, cz); scene.add(g); box(dx, 3.2, dz, escolaM, 0, 0, 0, g); hipRoof(g, dz, dx, 0xb04a28); block(cx - dx / 2, cz - dz / 2, cx + dx / 2, cz + dz / 2, 3.2) }
+  ala(50, -66, 18, 64); ala(80, -52, 42, 16)                                                                      // duas alas em L, como na foto (a escola tem ~70 × 75 m)
+  const pátio = new THREE.Mesh(new THREE.PlaneGeometry(70, 76), lm(0x6a8f4a)); pátio.rotation.x = -Math.PI / 2; pátio.position.set(75.5, 0.004, -68); scene.add(pátio)
+  box(0.25, 1.5, 76, 0xf08a24, 40.4, 0, -68); box(72, 1.5, 0.25, 0xf08a24, 76, 0, -30.8); block(40.27, -106, 40.53, -30, 1.5); block(40, -30.93, 112, -30.67, 1.5)                           // muros baixos (Umuarama e Palomas)
+  box(0.1, 2, 3.2, 0x2a6fc9, 40.4, 0, -66)                                                                         // portão de entrada
+  for (let wz = -96; wz <= -38; wz += 4) box(0.06, 1.1, 1.4, 0x9fd0e8, 40.97, 1.1, wz)                              // janelas
   const escolaPlaca = tex(512, 96, (g, w, h) => { g.fillStyle = '#f4f1e8'; g.fillRect(0, 0, w, h); g.fillStyle = '#2a6fc9'; g.font = 'bold 30px sans-serif'; g.textAlign = 'center'; g.fillText('Centro Municipal de', w / 2, 38); g.fillText('Educação Infantil', w / 2, 76) })
-  const placaE = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.64), new THREE.MeshBasicMaterial({ map: escolaPlaca })); placaE.position.set(-7.02, 2.7, 0); placaE.rotation.y = -Math.PI / 2; sg.add(placaE)
-  // placas da esquina
-  const plate = (text: string, y: number, c: string, sub?: string) => {
-    const t = tex(256, 64, (g, w, h) => { g.fillStyle = c; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = `bold ${sub ? 28 : 30}px sans-serif`; g.fillText(text, w / 2, sub ? 32 : 42); if (sub) { g.font = '15px sans-serif'; g.fillText(sub, w / 2, 54) } })
-    for (const [rot, dz] of [[0, 0.03], [Math.PI, -0.03]]) { // um plano pra cada lado, senão o texto sai espelhado
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.28), new THREE.MeshBasicMaterial({ map: t })); m.position.set(21.4, y, 23.6 + dz); m.rotation.y = rot; root.add(m)
-    }
-  }
-  cyl(0.04, 2.7, 0x666666, 21.4, 0, 23.6); plate(PLACE.street, 2.5, '#1e6fb8', PLACE.sector); plate(PLACE.cross, 2.15, '#2e8b57')
-  const pare = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.03, 8), bm(0xc0202a)); pare.rotation.x = Math.PI / 2; pare.rotation.z = Math.PI / 8; pare.position.set(29.6, 2.0, 23.4); root.add(pare)
-  cyl(0.04, 2.0, 0x666666, 29.6, 0, 23.4)
-  const roadText = tex(512, 128, (g, w, h) => { g.fillStyle = 'rgba(240,240,236,0.85)'; g.font = 'bold 88px sans-serif'; g.textAlign = 'center'; g.fillText(PLACE.street.replace('Rua ', 'R. '), w / 2, 98) })
-  const rt = new THREE.Group(); rt.position.set(25, 0.012, 11); rt.rotation.y = Math.PI / 2; root.add(rt)           // nome da rua pintado no chão
-  const rtm = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: roadText, transparent: true, depthWrite: false })); rtm.rotation.x = -Math.PI / 2; rt.add(rtm)
-  const speed = tex(128, 128, (g, w, h) => { g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill(); g.strokeStyle = '#d02020'; g.lineWidth = 12; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.stroke(); g.fillStyle = '#111'; g.font = 'bold 56px sans-serif'; g.textAlign = 'center'; g.fillText('20', 64, 84) })
-  cyl(0.04, 2.4, 0x666666, 29.4, 0, 17)
-  for (const [r0, dx] of [[0, -0.03], [Math.PI, 0.03]]) { const sp = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({ map: speed, transparent: true })); sp.position.set(29.4 + dx, 2.3, 17); sp.rotation.y = r0 + Math.PI / 2; root.add(sp) }
-  block(29.3, 16.9, 29.5, 17.1)
-  root = scene; ox = 0
-  // vizinhos do mesmo lado da rua (coordenadas do mundo): norte (2 m de vão pras janelas), oeste (viela) e do outro lado da transversal
-  const NORTH: CasaOpt[] = [
-    { body: 0xa98ad1, wall: 0xa5a8a6, roof: 0x7a2e24, gate: 'rust', mail: true, meter: true },   // lilás, muro cinza, caixa de correio branca
-    { body: 0xd9c8a8, wall: 0x8a5a5c, roof: 0x6e6a66, gate: 'galv', mail: true },               // muro mauve
-    { body: 0x8da0b5, wall: 0xb9ab92, roof: 0x77736f, gate: 'white', meter: true },
-  ]
-  for (let i = 0, z0 = -6; z0 > -60; z0 -= 9, i++) { casa(21, z0, 8, 14, 0, i, NORTH[i % 3]); if (!i) casa(5, z0, 8, 14, 0, 2) }
-  for (let i = 0, z0 = -42; z0 < 14; z0 += 9, i++) casa(-10, z0, 8, 14, 0, i + 1)
-  for (let i = 0, x0 = -60; x0 < 140; x0 += 9, i++) if (x0 + 4 < 28.5 || x0 - 4 > 39.5) casa(x0, 40, 8, 12, N, i + 3)
-  for (let i = 0, x0 = -30; x0 > -64; x0 -= 9, i++) casa(x0, 18.9, 8, 6, -Math.PI / 2, i + 1)   // lado norte da transversal (oeste)
-  for (let i = 0, x0 = 54; x0 < 124; x0 += 9, i++) casa(x0, 18.9, 8, 6, -Math.PI / 2, i + 2)    // lado norte da transversal (leste)
-  casa(21, 20.4, 5, 14, 0, 4, { body: 0xc9a97d, wall: 0x3b3836, gate: 'chevron', roof: 0x6b3a22, tank: true, meter: true }); casa(5, 20.4, 5, 14, 0, 1) // vizinhos do sul, depois do fim do lote (z 17–23)
+  const placaE = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.64), new THREE.MeshBasicMaterial({ map: escolaPlaca })); placaE.position.set(40.45, 2.7, -66); placaE.rotation.y = -Math.PI / 2; scene.add(placaE)
+  const quadra = tex(256, 128, (g, w, h) => { g.fillStyle = '#2a5db0'; g.fillRect(0, 0, w, h); g.strokeStyle = '#fff'; g.lineWidth = 4; g.strokeRect(8, 8, w - 16, h - 16); g.beginPath(); g.moveTo(w / 2, 8); g.lineTo(w / 2, h - 8); g.stroke(); g.beginPath(); g.arc(w / 2, h / 2, 22, 0, 7); g.stroke() })
+  const qd = new THREE.Mesh(new THREE.PlaneGeometry(16, 8), new THREE.MeshBasicMaterial({ map: quadra })); qd.rotation.x = -Math.PI / 2; qd.position.set(98, 0.008, -40); scene.add(qd)  // quadra
+  for (const [tx2, tz2] of [[46, -100], [62, -88], [78, -90], [96, -80], [104, -98], [62, -38], [90, -36], [106, -60]]) { cyl(0.15, 2, 0x5a3a22, tx2, 0, tz2); const cr = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 8), lm(0x2f6b2f)); cr.position.set(tx2, 3, tz2); scene.add(cr) }
+
 
   // ---------- FRENTE DA CASA (referência: foto do Street View) ----------
   // poste de concreto na calçada com travessa, isoladores e fios atravessando a rua
@@ -475,32 +903,29 @@ export function buildProps(scene: THREE.Scene) {
     for (let i = 0; i <= 14; i++) { const t = i / 14; pts.push(new THREE.Vector3(ax + (bx - ax) * t, y - sag * 4 * t * (1 - t), az + (bz - az) * t)) }
     scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x1a1a1a })))
   }
-  const zs = [-30, -17, -4, 9, 22, 35, 48]
+  const zs: number[] = []
+  for (let z = 9 - 13 * 9; z <= WORLD.z1 - 6; z += 13) if (z < BAR - 6 || z > BAR + 6) zs.push(z)
   for (const z of zs) pole(30.2, z)
-  for (const z of [-30, -4, 22, 48]) pole(38.4, z)
-  for (let i = 0; i < zs.length - 1; i++) for (const dx of [-0.7, 0, 0.7]) wire(30.2 + dx, zs[i], 30.2 + dx, zs[i + 1])
-  for (const dx of [-0.7, 0, 0.7]) { wire(30.2 + dx, 9, 38.4 + dx, 9, 7.4, 0.9); wire(30.2 + dx, 22, 38.4 + dx, 22, 7.4, 0.9) }
+  const east = zs.filter((_, i) => i % 2 === 0)
+  for (const z of east) pole(38.4, z)
+  for (let i = 0; i < zs.length - 1; i++) if (Math.abs(zs[i + 1] - zs[i]) < 14) for (const dx of [-0.7, 0, 0.7]) wire(30.2 + dx, zs[i], 30.2 + dx, zs[i + 1])
+  for (let i = 0; i < east.length - 1; i++) if (Math.abs(east[i + 1] - east[i]) < 27) for (const dx of [-0.7, 0, 0.7]) wire(38.4 + dx, east[i], 38.4 + dx, east[i + 1])
+  for (const z of east) for (const dx of [-0.7, 0, 0.7]) wire(30.2 + dx, z, 38.4 + dx, z, 7.4, 0.9) // fios atravessando a rua
   // banquinho de concreto com vaso na frente do muro, montinho de areia na calçada
-  box(0.5, 0.3, 0.7, 0xaaa9a2, 29.4, 0, 10.6); cyl(0.12, 0.2, 0xd9825b, 29.4, 0.3, 10.6); block(29.1, 10.2, 29.7, 11)
-  const sand = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.55, 12), lm(0xd2b48c)); sand.position.set(30, 0.27, 18.8); scene.add(sand); block(29.2, 18, 30.8, 19.6)
+  sitAct(box(0.5, 0.3, 0.7, 0xaaa9a2, 29.4, 0, 10.6), [{ x: 29.4, y: 0.3, z: 10.9, yaw: -Math.PI / 2 }], 'Sentar no banquinho'); cyl(0.12, 0.2, 0xd9825b, 29.4, 0.3, 10.6); block(29.1, 10.2, 29.7, 11, 0.5)
+  const sand = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.55, 12), lm(0xd2b48c)); sand.position.set(30, 0.27, 18.8); scene.add(sand); block(29.2, 18, 30.8, 19.6, 0.5)
   // telhado de cerâmica em quatro águas com beirada branca e vermelha (a casa fica branca com telha vermelha)
-  const roofMat = new THREE.MeshLambertMaterial({ color: 0xb04a28, side: THREE.DoubleSide })
-  const [x0, x1, z0, z1, rx0, rx1, rz, y0, y1] = [-0.6, 20.6, -0.6, 16.6, 5, 15, 8, 2.6, 4.3]
-  const tri = (...v: number[][]) => v.flat()
-  const roofGeo = new THREE.BufferGeometry()
-  roofGeo.setAttribute('position', new THREE.Float32BufferAttribute([
-    ...tri([x0, y0, z1], [x1, y0, z1], [rx1, y1, rz], [x0, y0, z1], [rx1, y1, rz], [rx0, y1, rz]),   // sul
-    ...tri([x1, y0, z0], [x0, y0, z0], [rx0, y1, rz], [x1, y0, z0], [rx0, y1, rz], [rx1, y1, rz]),   // norte
-    ...tri([x0, y0, z0], [x0, y0, z1], [rx0, y1, rz]), ...tri([x1, y0, z1], [x1, y0, z0], [rx1, y1, rz]), // oeste, leste
-  ], 3))
-  roofGeo.computeVertexNormals()
-  const roof = new THREE.Mesh(roofGeo, roofMat); scene.add(roof); roofs.push(roof)
+  const [x0, x1, z0, z1] = [-0.6, 20.6, -0.6, 16.6]
+  const roofG = new THREE.Group(); roofG.position.set(10, 0, 8); scene.add(roofG)
+  roofs.push(hipRoof(roofG, 16.7, 20.7, 0xb04a28, 2.6, 4.3))                                                       // telhado de quatro águas, pisável (a beirada fica na altura das paredes)
   for (const [w, d, x, z] of [[21.2, 0.12, 10, z0], [21.2, 0.12, 10, z1], [0.12, 17.2, x0, 8], [0.12, 17.2, x1, 8]]) {
     roofs.push(box(w, 0.18, d, 0xf4f0e6, x, 2.5, z), box(w, 0.05, d, 0xb04a28, x, 2.45, z))
   }
-  roofs.push(box(10, 0.08, 0.2, 0x7a2e14, 10, 4.3, 8))
+  roofs.push(box(4, 0.08, 0.2, 0x7a2e14, 10, 4.3, 8))
   roofs.push(box(8.4, 0.14, 5.6, 0xf2efe6, 24.1, 2.6, 3.5), box(8.4, 0.05, 0.12, 0xb04a28, 24.1, 2.74, 6.25)) // laje da garagem
+  roofRects.push({ x0: 19.9, z0: 0.7, x1: 28.3, z1: 6.3, y0: 2.74, y1: 2.74 })                                    // e dá pra andar nela
 
+  const oficinaBulb = bulb
   // ---------- VENTILADORES DE TETO ----------
   for (const [fx, fz] of [[10.5, 3.5], [15.5, 13]]) {
     const f = new THREE.Group(); f.position.set(fx, H - 0.25, fz); scene.add(f)
@@ -515,11 +940,168 @@ export function buildProps(scene: THREE.Scene) {
     fans.push(f)
   }
 
+  // ---------- CALÇADA DO SMOLL: campainha, lixeira, cachorro, cadeira, picolé… ----------
+  // campainha no muro, ao lado do portão: toca dentro da casa (volume cai com a distância) e o Smoll abre o portão de longe
+  const bell = box(0.04, 0.12, 0.08, 0xdddddd, 29.03, 1.25, 6.5); const bellBtn = box(0.03, 0.05, 0.05, 0xe0c030, 29.06, 1.29, 6.5)
+  act(bell, 'Tocar a campainha', () => ringBell()); act(bellBtn, 'Tocar a campainha', () => ringBell())
+  // quanto mais você toca, mais o Smoll se irrita; no décimo toque ele arranca a campainha da parede (volta em 45 s)
+  let rings = 0, lastRing = -1e9, bellOffAt = 0
+  const SAY: Record<number, [string, string?]> = {
+    1: ['"JÁ VAI!" — o Smoll, sem levantar da cadeira.'], 2: ['"Calma aí, já vou!"'], 3: ['"Tô indo, tô indo…" (não tá)'], 4: ['"QUEM É?! PARA DE TOCAR!"', 'facepalm'],
+    5: ['"Se tocar mais uma vez eu…"', 'point'], 6: ['"Eu vou ficar bravo, hein."'], 7: ['"PAROU! Vou chamar a polícia!"', 'shrug'], 8: ['"ISSO É ASSÉDIO DE CAMPAINHA!"', 'facepalm'], 9: ['O Smoll tá a ponto de explodir…'],
+  }
+  const ringBell = () => {
+    const now = performance.now()
+    if (bellOffAt > now) { toast('A campainha foi arrancada da parede. Só sobrou o fio.'); return }
+    rings = now - lastRing > 40000 ? 1 : rings + 1; lastRing = now
+    chime(Math.max(0.03, Math.min(0.35, 0.45 - Math.hypot(playerPos.x - 18, playerPos.z - 8) / 60)))
+    const asleep = state.cmd('wave') === false
+    if (asleep && rings < 4) { toast(`Ding-dong! 🔔 Ninguém atende (o Smoll tá dormindo). [${rings}]`); return }
+    if (asleep && rings === 4) { state.cmd('wake'); toast('O Smoll acordou com cara de poucos amigos. 😠') ; return }
+    if (rings >= 10) {
+      bellOffAt = now + 45000; bell.visible = bellBtn.visible = false
+      toast('Smoll: ENTRA LOGO E SOME! O Smoll arrancou a campainha da parede. 🔔💥'); state.cmd('stand')
+      setTimeout(() => { setGate(true); setTimeout(() => setGate(false), 12000) }, 1500)
+      setTimeout(() => { bell.visible = bellBtn.visible = true; rings = 0; toast('O Smoll reinstalou a campainha (contra a vontade).') }, 45000); return
+    }
+    const [line, anim] = SAY[rings] ?? ['"…"']
+    toast(`Ding-dong! 🔔 [${rings}]  ${line}`); if (anim) state.cmd(anim)
+    if (rings === 1) { setTimeout(() => { setGate(true); toast('O Smoll abriu o portão de longe, pelo controle. 🚪') }, 3800); setTimeout(() => setGate(false), 15000) }
+  }
+  // lixeira verde com tampa que abre
+  const bin = new THREE.Group(); bin.position.set(29.55, 0, 12.5); scene.add(bin)
+  cyl(0.27, 0.75, 0x2f7d46, 0, 0, 0, bin)
+  const lid = new THREE.Group(); lid.position.set(0.27, 0.75, 0); bin.add(lid); cyl(0.29, 0.05, 0x256338, -0.27, 0, 0, lid)
+  block(29.25, 12.2, 29.85, 12.8, 0.8)
+  let binOpen = false, binA = 0
+  const binFn = () => { binOpen = !binOpen; if (binOpen) toast(pick(['Latas de Kuat. Muitas. Todas vazias.', 'Caixa de pizza e embalagem de miojo. Dieta do dev.', 'Uma peruca loira?! Melhor não perguntar.', 'Sacola de supermercado cheia de cabos USB quebrados.'])) }
+  act(bin, () => (binOpen ? 'Fechar a lixeira' : 'Abrir a lixeira'), binFn, (id) => { binOpen = true; toast(`${ITEMS[id].name} foi pro lixo. 🗑️`); return 'consume' })
+  ticks.push((dt) => { binA += ((binOpen ? -1.9 : 0) - binA) * Math.min(1, dt * 6); lid.rotation.z = binA })
+  // cachorro caramelo deitado: faz carinho e o rabo balança (e ele late)
+  const dog = new THREE.Group(); dog.position.set(30.4, 0, 14.0); dog.rotation.y = 0.5; scene.add(dog)
+  box(0.62, 0.22, 0.26, 0xc9964f, 0, 0.03, 0, dog); box(0.26, 0.22, 0.22, 0xc9964f, 0.38, 0.1, 0, dog); box(0.12, 0.09, 0.14, 0x3a2a1c, 0.54, 0.12, 0, dog)
+  for (const zz of [-0.1, 0.1]) { box(0.08, 0.14, 0.06, 0xa8763a, 0.33, 0.22, zz, dog); box(0.25, 0.08, 0.07, 0xc9964f, 0.25, 0, zz * 1.7, dog) }
+  const tail = new THREE.Group(); tail.position.set(-0.32, 0.18, 0); dog.add(tail); box(0.3, 0.06, 0.07, 0xc9964f, -0.15, 0, 0, tail)
+  let wag = 0, t2 = 0
+  const pet = () => { wag = 3; bark(Math.max(0.03, 0.25 - Math.hypot(playerPos.x - 30.4, playerPos.z - 14) / 40)); toast(pick(['O caramelo rolou de barriga pra cima. Missão cumprida.', 'Ele late: "AU!" (traduzindo: mais carinho).', 'Caramelo não tem dono: tem família.', 'O cachorro lambeu sua mão. Agora é amigo pra vida.'])) }
+  act(dog, 'Fazer carinho no caramelo', pet, (id, kind) => {
+    if (kind === 'food') { wag = 4; bark(0.15); toast(`O caramelo devorou ${ITEMS[id].name}. Amigo pra vida.`); return 'consume' }
+    wag = 1.5; toast('O caramelo cheirou e perdeu o interesse.'); return true
+  })
+  ticks.push((dt) => { t2 += dt; wag = Math.max(0, wag - dt); tail.rotation.y = Math.sin(t2 * (wag > 0 ? 22 : 2.2)) * (wag > 0 ? 0.7 : 0.2); dog.position.y = wag > 0 ? Math.abs(Math.sin(t2 * 11)) * 0.03 : 0 })
+  // cadeira de plástico da calçada e um copo de tereré
+  const chair = new THREE.Group(); chair.position.set(29.6, 0, 15.3); chair.rotation.y = -0.4; scene.add(chair)
+  box(0.42, 0.04, 0.42, 0xf4f4f0, 0, 0.42, 0, chair); box(0.04, 0.42, 0.04, 0xf4f4f0, 0.18, 0, 0.18, chair); box(0.04, 0.42, 0.04, 0xf4f4f0, 0.18, 0, -0.18, chair); box(0.04, 0.42, 0.04, 0xf4f4f0, -0.18, 0, 0.18, chair); box(0.04, 0.42, 0.04, 0xf4f4f0, -0.18, 0, -0.18, chair); box(0.04, 0.45, 0.42, 0xf4f4f0, -0.2, 0.45, 0, chair)
+  sitAct(chair, [{ x: 29.6, y: 0.46, z: 15.3, yaw: -Math.PI / 2 }], 'Sentar na cadeira de calçada')
+  block(29.35, 15.1, 29.85, 15.6, 0.45)
+  // carrinho de picolé com guarda-sol (ponto na esquina da casa)
+  const cart = new THREE.Group(); cart.position.set(30.4, 0, 16.9); scene.add(cart)
+  box(0.9, 0.55, 0.5, 0xf2f2ee, 0, 0.3, 0, cart); box(0.92, 0.06, 0.52, 0x2e86de, 0, 0.85, 0, cart); box(0.06, 0.6, 0.06, 0x888888, 0.35, 0.9, 0.18, cart)
+  const umb = new THREE.Mesh(new THREE.ConeGeometry(0.75, 0.3, 8), lm(0xe84a5f)); umb.position.set(0, 1.55, 0); cart.add(umb); cyl(0.02, 0.7, 0xaaaaaa, 0, 0.9, 0, cart)
+  for (const w of [-0.3, 0.3]) { const wh = cyl(0.12, 0.05, 0x222222, w, 0, 0.28, cart); wh.rotation.x = Math.PI / 2 }
+  const picoleId = defineItem('Picolé', (g) => { cyl(0.02, 0.1, 0xf2c4dc, 0, 0.05, 0, g); box(0.02, 0.06, 0.006, 0xc9a06a, 0, 0, 0, g) })
+  act(cart, 'Comprar um picolé', () => { if (giveItem(picoleId)) toast(pick(['Picolé de coco, R$ 3. Pagou no Pix imaginário.', 'Picolé de uva derretendo na mão antes da primeira lambida.', 'Tinha de manga. Claro que tinha.']) + ' 🍦') })
+  block(29.9, 16.6, 30.9, 17.2, 0.9)
+  // placa no muro
+  wallPlane(0.5, 0.3, tex(256, 150, (g, w, h) => { g.fillStyle = '#f7d23a'; g.fillRect(0, 0, w, h); g.strokeStyle = '#222'; g.lineWidth = 6; g.strokeRect(4, 4, w - 8, h - 8); g.fillStyle = '#222'; g.font = 'bold 26px sans-serif'; g.textAlign = 'center'; g.fillText('CUIDADO COM', w / 2, 50); g.fillText('O CACHORRO', w / 2, 82); g.font = '18px sans-serif'; g.fillText('(ele é medroso)', w / 2, 118) }), 29.03, 1.55, 13.4, Math.PI / 2)
+
+  // ---------- QUARTO: roteador, celular, despertador, violão e halter ----------
+  // roteador Wi-Fi na prateleira da parede norte: painel com velocidade, dispositivos, reiniciar (cai a internet e a TV), trocar a senha e bloquear a TV
+  box(0.9, 0.04, 0.22, 0x5a3a22, 13.9, 1.55, 11.12)
+  const router = new THREE.Group(); router.position.set(13.9, 1.59, 11.14); scene.add(router)
+  box(0.3, 0.04, 0.17, 0x1a1a22, 0, 0, 0, router)
+  for (const [ax, rz] of [[-0.12, -0.25], [0, 0], [0.12, 0.25]] as const) { const an = box(0.012, 0.2, 0.012, 0x222222, ax, 0.02, 0.03, router); an.rotation.z = rz }
+  const leds = [0x30e060, 0x30e060, 0x30a0ff, 0xe0c030].map((c, i) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 4), new THREE.MeshBasicMaterial({ color: c })); m.position.set(-0.09 + i * 0.045, 0.026, -0.086); router.add(m); return m })
+  let wifiPass = 'ariquemes1234', rebootT = 0
+  const WPASS = ['batata2024', 'naoeasenha', 'kuat1234', 'smollgamer', 'senha123', 'vizinhonaopega']
+  ticks.push((dt) => {
+    if (rebootT > 0) { rebootT -= dt; leds.forEach((l) => (l.visible = false)); if (rebootT <= 0) { state.internet = true; leds.forEach((l) => (l.visible = true)); toast('A internet voltou. 📶') } return }
+    leds.forEach((l, i) => (l.visible = i < 2 || Math.random() < 0.6))   // piscando
+  })
+  const rebootRouter = () => {
+    state.internet = false; rebootT = 8
+    const was = tv.on; if (was) { tv.setOn(false); tv.sync() }
+    toast('Smoll: A INTERNET CAIU! EU TAVA NO MEIO DA PARTIDA!'); state.cmd('facepalm')
+    setTimeout(() => { if (was && !state.tvBlocked) { tv.setOn(true); tv.sync() } }, 8500)
+  }
+  const routerAct = () => openPanel('📶 Roteador Smoll_5G_NãoRoube',
+    () => `📶 Rede: <b>Smoll_5G_NãoRoube</b><br>🔑 Senha: <b>${wifiPass}</b><br>${state.internet ? `⬇️ <b>${(180 + Math.random() * 40).toFixed(0)} Mbps</b> &nbsp; ⬆️ <b>${(90 + Math.random() * 20).toFixed(0)} Mbps</b> &nbsp; ping <b>${(8 + Math.random() * 6).toFixed(0)} ms</b>` : '❌ <b>Sem internet (reiniciando…)</b>'}<br>💻 Conectados: PC do Smoll, celular do Smoll, ${state.tvBlocked ? '<s>TV da sala</s> (bloqueada)' : 'TV da sala'}, geladeira do vizinho (?)`,
+    [
+      { t: '🔁 Reiniciar', fn: rebootRouter },
+      { t: '🔑 Trocar a senha', keep: true, fn: () => { wifiPass = WPASS[Math.floor(Math.random() * WPASS.length)]; toast(`Nova senha: ${wifiPass}`) } },
+      { t: '📝 Anotar a senha', fn: () => { const id = defineItem('Senha do Wi-Fi', (g) => box(0.07, 0.005, 0.07, 0xf4e04d, 0, 0, 0, g)); if (giveItem(id)) toast(`Post-it com a senha: ${wifiPass}`) } },
+      { t: '🚫 Bloquear / liberar a TV', keep: true, fn: () => { state.tvBlocked = !state.tvBlocked; if (state.tvBlocked && tv.on) { tv.setOn(false); tv.sync() } toast(state.tvBlocked ? 'TV bloqueada. O Smoll ri sozinho.' : 'TV liberada.') } },
+    ])
+  act(router, 'Abrir o roteador', routerAct)
+  // celular do Smoll no criado-mudo: pegável, e na mão abre as mensagens
+  const phonePanel = () => openPhone()
+  thing(12.3, 0.5, 11.38, 'Pegar o celular do Smoll', ['Celular do Smoll. A bateria tá em 3%.', 'Tela quebrada, mas funciona. O mundo é assim.'], (g) => { box(0.07, 0.01, 0.14, 0x111118, 0, 0, 0, g); box(0.06, 0.002, 0.12, 0x2e86de, 0, 0.01, 0, g) })
+  ITEMS[defineItem('Celular do Smoll')].use = phonePanel
+  const alarm = box(0.09, 0.07, 0.04, 0xd8d8d0, 12.45, 0.5, 11.62); act(alarm, 'Ver o despertador', () => { const h = gameHour(); toast(`⏰ ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')} — "5 minutinhos" (alarme de 6h, soneca ×7)`) })
+  // violão encostado na parede oeste: tudo emendado (corpo de dois bojos, braço, cabeça), com boca e cordas
+  const guitar = new THREE.Group(); guitar.position.set(12.07, 0, 14.55); guitar.rotation.y = Math.PI / 2; scene.add(guitar) // frente (+z local) pra dentro do quarto (+x)
+  const gm = (geo: THREE.BufferGeometry, c: number, x: number, y: number, z: number) => { const m = new THREE.Mesh(geo, lm(c)); m.position.set(x, y, z); guitar.add(m); return m }
+  gm(new THREE.CylinderGeometry(0.17, 0.17, 0.07, 20), 0xc07a30, 0, 0.3, 0).rotation.x = Math.PI / 2   // bojo de baixo
+  gm(new THREE.CylinderGeometry(0.125, 0.125, 0.07, 20), 0xc07a30, 0, 0.55, 0).rotation.x = Math.PI / 2 // bojo de cima (se sobrepõe ao de baixo)
+  gm(new THREE.CylinderGeometry(0.045, 0.045, 0.075, 14), 0x1a1208, 0, 0.42, 0).rotation.x = Math.PI / 2 // boca
+  gm(new THREE.BoxGeometry(0.05, 0.62, 0.03), 0x5a3a22, 0, 0.88, 0)                                       // braço (do bojo de cima até a cabeça)
+  gm(new THREE.BoxGeometry(0.07, 0.15, 0.025), 0x3a2a1c, 0, 1.24, 0)                                      // cabeça
+  gm(new THREE.BoxGeometry(0.1, 0.012, 0.075), 0x2a1c10, 0, 0.27, 0.01)                                   // cavalete
+  for (let i = -2; i <= 2; i++) gm(new THREE.BoxGeometry(0.004, 0.98, 0.004), 0xdddddd, i * 0.009, 0.77, 0.02) // cordas
+  act(guitar, 'Tocar o violão', () => { strum(); toast(pick(['Dedilhou o Do maior. Ele já tava desafinado há 2 anos.', 'Tocou "Evidências". O vizinho agradece (não).', 'Cordas soltas. Soa como o início de uma banda de garagem.'])) })
+  const dumbbell = (x: number, z: number) => thing(x, 0, z, 'Pegar o halter', ['Halter de 5 kg. Usado como peso de papel.', 'Pesado. Smoll não levanta isso há meses.'], (g) => {
+    // barra e anilhas no mesmo eixo (x) e na mesma altura: o halter apoia nas anilhas, no chão
+    const part = (r: number, h: number, c: number, x: number) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 14), lm(c)); m.rotation.z = Math.PI / 2; m.position.set(x, 0.05, 0); g.add(m) }
+    part(0.02, 0.3, 0x777777, 0); for (const dx of [-0.12, 0.12]) part(0.05, 0.05, 0x222222, dx)
+  })
+  dumbbell(18.4, 14.55); dumbbell(18.4, 14.8)
+  ITEMS[defineItem('Halter')].use = () => toast(pick(['Você levantou o halter. 3 repetições e desistiu.', 'Treino de braço concluído (1 rep).', 'O halter te venceu.']))
+
+  // ---------- LUZES E INTERRUPTORES ----------
+  // cada cômodo tem lâmpada(s) de teto e um interruptor na parede (ventilador tem o seu ao lado). Começam apagadas: de dia a casa já está clara.
+  type Lamp = { set(on: boolean): void }
+  const pl = (l: THREE.PointLight, i: number, bulbMesh?: THREE.Mesh): Lamp => ({ set(on) { l.intensity = on ? i : 0; (bulbMesh?.material as THREE.MeshBasicMaterial | undefined)?.color.set(on ? 0xfff2c0 : 0x555555) } })
+  const ceil = (x: number, z: number, i = 3.5, d = 8): Lamp => {
+    const l = light(0xffe6b0, 0, d, x, H - 0.25, z)
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), bm(0x555555)); b.position.set(x, H - 0.1, z); scene.add(b)
+    return pl(l, i, b)
+  }
+  const wallSwitch = (px: number, py: number, pz: number, nx: number, nz: number, label: () => string, fn: () => void) => {
+    const base = box(nx ? 0.025 : 0.1, 0.14, nx ? 0.1 : 0.025, 0xf2f2ee, px, py, pz)
+    const key = box(nx ? 0.03 : 0.04, 0.06, nx ? 0.04 : 0.03, 0xd0d0c6, px + nx * 0.012, py + 0.04, pz + nz * 0.012)
+    for (const o of [base, key]) act(o, label, fn)
+  }
+  // (px, pz) = centro da placa na parede; (nx, nz) = direção pra onde a parede olha (dentro do cômodo)
+  // places = onde ficam as placas (uma ao lado de cada porta do cômodo); todas mexem nas mesmas lâmpadas
+  type Place = [number, number, number, number]
+  const ROOMS = ['oficina', 'sala', 'cozinha', 'corredor', 'varanda', 'banheiro', 'quarto', 'garagem']; let roomIdx = 0 // mesma ordem das chamadas abaixo
+  const switchRoom = (places: Place[], lamps: Lamp[], fan?: THREE.Object3D) => {
+    let on = false; lamps.forEach((l) => l.set(false))
+    const rname = ROOMS[roomIdx++]
+    world.luz[rname] = () => { if (!state.power) return; on = !on; lamps.forEach((l) => l.set(on)) }
+    if (fan) world.ventilador[rname] = () => { if (state.power) fan.userData.on = !fan.userData.on }
+    energy.rooms.push({ on: () => on, w: 60 * lamps.length, off: () => { on = false; lamps.forEach((l) => l.set(false)) } })
+    const noPower = () => { if (state.power) return false; toast('Sem energia. Alguém desligou o disjuntor.'); return true }
+    for (const [px, pz, nx, nz] of places) {
+      wallSwitch(px, 1.2, pz, nx, nz, () => (on ? 'Apagar a luz' : 'Acender a luz'), () => { if (noPower()) return; on = !on; lamps.forEach((l) => l.set(on)) })
+      if (fan) wallSwitch(px + (nz ? 0.15 : 0), 1.2, pz + (nx ? 0.15 : 0), nx, nz, () => (fan.userData.on ? 'Desligar o ventilador' : 'Ligar o ventilador'), () => { if (noPower()) return; fan.userData.on = !fan.userData.on })
+    }
+  }
+  switchRoom([[6.97, 4.35, -1, 0], [5.5, 5.99, 0, -1]], [pl(lampOfi, 6, oficinaBulb)])                         // oficina: ao lado das duas portas
+  switchRoom([[8.03, 4.35, 1, 0], [11.5, 5.99, 0, -1]], [ceil(10.5, 3.5)], fans[0])                            // sala + ventilador
+  switchRoom([[14.03, 4.35, 1, 0], [17.5, 5.99, 0, -1]], [ceil(16.5, 3.5)])                                    // cozinha
+  switchRoom([[11.5, 7.01, 0, 1], [18.99, 9.4, -1, 0], [4.6, 9.99, 0, -1]], [ceil(5, 8), ceil(11, 8), ceil(17, 8)]) // corredor: perto da porta da sala, da porta da frente e da varanda
+  switchRoom([[4.6, 11.03, 0, 1]], [ceil(3, 12.5)])                                                             // varanda (ao lado da porta)
+  switchRoom([[10.6, 11.03, 0, 1]], [pl(lampBan, 3)])                                                           // banheiro (ao lado da porta)
+  switchRoom([[16.45, 11.03, 0, 1]], [ceil(15.5, 12.5)], fans[1])                                               // quarto + ventilador (ao lado da porta)
+  switchRoom([[20.03, 2.0, 1, 0]], [pl(lampGar, 5)])                                                            // garagem (na parede da casa)
+
   return {
     roofs,
-    update(dt: number) {
+    update(dt: number, px = 20, pz = 8, all = false) {
+      if ((cullT += dt) > 0.4) { cullT = 0; for (const c of culls) c.visible = all || Math.hypot(c.position.x - px, c.position.z - pz) < 170 } // a névoa esconde o que está além de 170 m
       fans.forEach((f) => { if (f.userData.on) f.rotation.y += dt * 9 })
-      quadro.update(dt)
+      quadro.update(dt); ticks.forEach((t) => t(dt)); if (mirrorR) mirrorR.visible = Math.hypot(px - 10.5, pz - 12.6) < 6
       clock += dt; swing.forEach((w) => (w.pivot.rotation.z = Math.sin(clock * 1.3 + w.phase) * 0.07))
       doors.forEach((d) => (d.g.rotation.y += (d.a - d.g.rotation.y) * Math.min(1, dt * 6)))
       gate.position.z += ((state.gateOpen ? 5.1 : 0) - gate.position.z) * Math.min(1, dt * 3)

@@ -1,0 +1,523 @@
+{
+  "id": "smoll-skin-red-trellis2",
+  "revision": 0,
+  "last_node_id": 28,
+  "last_link_id": 45,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [60, 200],
+      "size": [320, 320],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        { "name": "IMAGE", "type": "IMAGE", "links": [1, 4] },
+        { "name": "MASK", "type": "MASK", "links": null }
+      ],
+      "title": "Skin limpa (smoll_skin_red_3d.png)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "LoadImage" },
+      "widgets_values": ["smoll_skin_red_3d.png", ""]
+    },
+    {
+      "id": 2,
+      "type": "LoadBackgroundRemovalModel",
+      "pos": [60, 620],
+      "size": [300, 80],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{ "name": "bg_model", "type": "BACKGROUND_REMOVAL", "links": [2] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "LoadBackgroundRemovalModel" },
+      "widgets_values": ["birefnet.safetensors"]
+    },
+    {
+      "id": 3,
+      "type": "RemoveBackground",
+      "pos": [420, 620],
+      "size": [240, 80],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        { "name": "bg_removal_model", "type": "BACKGROUND_REMOVAL", "link": 2 },
+        { "name": "image", "type": "IMAGE", "link": 1 }
+      ],
+      "outputs": [{ "name": "mask", "type": "MASK", "links": [3] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "RemoveBackground" },
+      "widgets_values": []
+    },
+    {
+      "id": 4,
+      "type": "ImageCropToMask",
+      "pos": [700, 400],
+      "size": [280, 140],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        { "name": "images", "type": "IMAGE", "link": 1 },
+        { "name": "masks", "type": "MASK", "link": 3 }
+      ],
+      "outputs": [{ "name": "images", "type": "IMAGE", "links": [5] }],
+      "title": "Recorta 1024x1024 centered no corpo",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "ImageCropToMask" },
+      "widgets_values": [1024, 1024, 1.1, 0, "#000000"]
+    },
+    {
+      "id": 5,
+      "type": "CLIPVisionLoader",
+      "pos": [60, 820],
+      "size": [300, 80],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{ "name": "CLIP_VISION", "type": "CLIP_VISION", "links": [6] }],
+      "title": "DINOv3 (visao do Trellis)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "CLIPVisionLoader" },
+      "widgets_values": ["dino_v3_L_naf_fp32.safetensors"]
+    },
+    {
+      "id": 6,
+      "type": "Trellis2Conditioning",
+      "pos": [1040, 200],
+      "size": [260, 80],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        { "name": "clip_vision_model", "type": "CLIP_VISION", "link": 6 },
+        { "name": "image", "type": "IMAGE", "link": 5 }
+      ],
+      "outputs": [
+        { "name": "positive", "type": "CONDITIONING", "links": [7, 20] },
+        { "name": "negative", "type": "CONDITIONING", "links": [8, 21] }
+      ],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "Trellis2Conditioning" },
+      "widgets_values": []
+    },
+    {
+      "id": 7,
+      "type": "UNETLoader",
+      "pos": [60, 1000],
+      "size": [320, 90],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{ "name": "MODEL", "type": "MODEL", "links": [9] }],
+      "title": "TRELLIS.2 (int8)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "UNETLoader" },
+      "widgets_values": ["trellis_2_int8_convrot.safetensors", "default"]
+    },
+    {
+      "id": 8,
+      "type": "ModelSamplingSD3",
+      "pos": [420, 1000],
+      "size": [220, 60],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [{ "name": "model", "type": "MODEL", "link": 9 }],
+      "outputs": [{ "name": "MODEL", "type": "MODEL", "links": [10, 11, 12, 13] }],
+      "title": "Shift 5.0",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "ModelSamplingSD3" },
+      "widgets_values": [5.0]
+    },
+    {
+      "id": 9,
+      "type": "EmptyTrellis2LatentStructure",
+      "pos": [700, 1000],
+      "size": [220, 60],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [14] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "EmptyTrellis2LatentStructure" },
+      "widgets_values": [1]
+    },
+    {
+      "id": 10,
+      "type": "VAELoader",
+      "pos": [60, 1180],
+      "size": [320, 80],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{ "name": "VAE", "type": "VAE", "links": [15, 16, 17] }],
+      "title": "VAE de forma",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "VAELoader" },
+      "widgets_values": ["trellis_2_shape_vae_bf16.safetensors"]
+    },
+    {
+      "id": 11,
+      "type": "VAELoader",
+      "pos": [60, 1320],
+      "size": [320, 80],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{ "name": "VAE", "type": "VAE", "links": [18] }],
+      "title": "VAE de textura",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "VAELoader" },
+      "widgets_values": ["trellis_2_texture_vae_bf16.safetensors"]
+    },
+    {
+      "id": 12,
+      "type": "KSampler",
+      "pos": [1380, 400],
+      "size": [280, 260],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        { "name": "model", "type": "MODEL", "link": 10 },
+        { "name": "positive", "type": "CONDITIONING", "link": 7 },
+        { "name": "negative", "type": "CONDITIONING", "link": 8 },
+        { "name": "latent_image", "type": "LATENT", "link": 14 }
+      ],
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [19] }],
+      "title": "Estrutura (12 steps)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "KSampler" },
+      "widgets_values": [42, "fixed", 12, 7.5, "euler", "normal", 1.0]
+    },
+    {
+      "id": 13,
+      "type": "VaeDecodeStructureTrellis2",
+      "pos": [1680, 400],
+      "size": [240, 80],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        { "name": "samples", "type": "LATENT", "link": 19 },
+        { "name": "vae", "type": "VAE", "link": 15 }
+      ],
+      "outputs": [{ "name": "voxel", "type": "VOXEL", "links": [22] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "VaeDecodeStructureTrellis2" },
+      "widgets_values": ["32"]
+    },
+    {
+      "id": 14,
+      "type": "Trellis2ShapeStage",
+      "pos": [1980, 200],
+      "size": [260, 90],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        { "name": "positive", "type": "CONDITIONING", "link": 20 },
+        { "name": "negative", "type": "CONDITIONING", "link": 21 },
+        { "name": "voxel", "type": "VOXEL", "link": 22 }
+      ],
+      "outputs": [
+        { "name": "positive", "type": "CONDITIONING", "links": [23, 24] },
+        { "name": "negative", "type": "CONDITIONING", "links": [25, 26] },
+        { "name": "LATENT", "type": "LATENT", "links": [27] }
+      ],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "Trellis2ShapeStage" },
+      "widgets_values": []
+    },
+    {
+      "id": 15,
+      "type": "KSampler",
+      "pos": [2280, 200],
+      "size": [280, 260],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        { "name": "model", "type": "MODEL", "link": 11 },
+        { "name": "positive", "type": "CONDITIONING", "link": 23 },
+        { "name": "negative", "type": "CONDITIONING", "link": 25 },
+        { "name": "latent_image", "type": "LATENT", "link": 27 }
+      ],
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [28] }],
+      "title": "Forma (20 steps)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "KSampler" },
+      "widgets_values": [42, "fixed", 20, 7.5, "euler", "normal", 1.0]
+    },
+    {
+      "id": 16,
+      "type": "Trellis2UpsampleStage",
+      "pos": [2580, 200],
+      "size": [280, 110],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        { "name": "positive", "type": "CONDITIONING", "link": 24 },
+        { "name": "negative", "type": "CONDITIONING", "link": 26 },
+        { "name": "shape_latent", "type": "LATENT", "link": 28 },
+        { "name": "vae", "type": "VAE", "link": 16 }
+      ],
+      "outputs": [
+        { "name": "positive", "type": "CONDITIONING", "links": [29, 30] },
+        { "name": "negative", "type": "CONDITIONING", "links": [31, 32] },
+        { "name": "LATENT", "type": "LATENT", "links": [33] }
+      ],
+      "title": "Upsample da forma (512)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "Trellis2UpsampleStage" },
+      "widgets_values": [1024]
+    },
+    {
+      "id": 17,
+      "type": "KSampler",
+      "pos": [2880, 200],
+      "size": [280, 260],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        { "name": "model", "type": "MODEL", "link": 12 },
+        { "name": "positive", "type": "CONDITIONING", "link": 29 },
+        { "name": "negative", "type": "CONDITIONING", "link": 31 },
+        { "name": "latent_image", "type": "LATENT", "link": 33 }
+      ],
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [34, 35] }],
+      "title": "Forma upsampling",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "KSampler" },
+      "widgets_values": [42, "fixed", 12, 7.5, "euler", "normal", 1.0]
+    },
+    {
+      "id": 18,
+      "type": "VaeDecodeShapeTrellis",
+      "pos": [3180, 200],
+      "size": [240, 80],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        { "name": "samples", "type": "LATENT", "link": 34 },
+        { "name": "vae", "type": "VAE", "link": 17 }
+      ],
+      "outputs": [
+        { "name": "mesh", "type": "MESH", "links": [36] },
+        { "name": "shape_subdivides", "type": "SHAPE_SUBDIVIDES", "links": [37] }
+      ],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "VaeDecodeShapeTrellis" },
+      "widgets_values": []
+    },
+    {
+      "id": 19,
+      "type": "Trellis2TextureStage",
+      "pos": [3480, 200],
+      "size": [260, 90],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        { "name": "positive", "type": "CONDITIONING", "link": 30 },
+        { "name": "negative", "type": "CONDITIONING", "link": 32 },
+        { "name": "shape_latent", "type": "LATENT", "link": 35 }
+      ],
+      "outputs": [
+        { "name": "positive", "type": "CONDITIONING", "links": [38] },
+        { "name": "negative", "type": "CONDITIONING", "links": [39] },
+        { "name": "LATENT", "type": "LATENT", "links": [40] }
+      ],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "Trellis2TextureStage" },
+      "widgets_values": []
+    },
+    {
+      "id": 20,
+      "type": "KSampler",
+      "pos": [3780, 200],
+      "size": [280, 260],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        { "name": "model", "type": "MODEL", "link": 13 },
+        { "name": "positive", "type": "CONDITIONING", "link": 38 },
+        { "name": "negative", "type": "CONDITIONING", "link": 39 },
+        { "name": "latent_image", "type": "LATENT", "link": 40 }
+      ],
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [41] }],
+      "title": "Textura (cfg 1.0)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "KSampler" },
+      "widgets_values": [42, "fixed", 12, 1.0, "euler", "normal", 1.0]
+    },
+    {
+      "id": 21,
+      "type": "VaeDecodeTextureTrellis",
+      "pos": [4080, 200],
+      "size": [260, 90],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        { "name": "samples", "type": "LATENT", "link": 41 },
+        { "name": "vae", "type": "VAE", "link": 18 },
+        { "name": "shape_subdivides", "type": "SHAPE_SUBDIVIDES", "link": 37 }
+      ],
+      "outputs": [{ "name": "voxel_colors", "type": "VOXEL", "links": [42] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "VaeDecodeTextureTrellis" },
+      "widgets_values": []
+    },
+    {
+      "id": 22,
+      "type": "GetMeshInfo",
+      "pos": [3180, 500],
+      "size": [220, 80],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [{ "name": "mesh", "type": "MESH", "link": 36 }],
+      "outputs": [
+        { "name": "mesh", "type": "MESH", "links": [43] },
+        { "name": "info", "type": "STRING", "links": null }
+      ],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "GetMeshInfo" },
+      "widgets_values": []
+    },
+    {
+      "id": 23,
+      "type": "RemeshMesh",
+      "pos": [3480, 500],
+      "size": [300, 200],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [{ "name": "mesh", "type": "MESH", "link": 43 }],
+      "outputs": [{ "name": "mesh", "type": "MESH", "links": [44] }],
+      "title": "Remesh (watertight)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "RemeshMesh" },
+      "widgets_values": [512, "udf", false, false, false, 1.0, 0.0, false, 0, 0.01, 20000000]
+    },
+    {
+      "id": 24,
+      "type": "DecimateMesh",
+      "pos": [3820, 500],
+      "size": [260, 110],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [{ "name": "mesh", "type": "MESH", "link": 44 }],
+      "outputs": [{ "name": "mesh", "type": "MESH", "links": [45] }],
+      "title": "Reduzir para 50k faces",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "DecimateMesh" },
+      "widgets_values": [50000, "midpoint"]
+    },
+    {
+      "id": 25,
+      "type": "UnwrapMesh",
+      "pos": [4120, 500],
+      "size": [260, 120],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [{ "name": "mesh", "type": "MESH", "link": 45 }],
+      "outputs": [{ "name": "mesh", "type": "MESH", "links": [46] }],
+      "title": "UV unwrap",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "UnwrapMesh" },
+      "widgets_values": ["pec", 2048, 1, 0.0002]
+    },
+    {
+      "id": 26,
+      "type": "PaintMesh",
+      "pos": [4420, 200],
+      "size": [240, 80],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        { "name": "mesh", "type": "MESH", "link": 46 },
+        { "name": "voxel_colors", "type": "VOXEL", "link": 42 }
+      ],
+      "outputs": [{ "name": "mesh", "type": "MESH", "links": [47] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "PaintMesh" },
+      "widgets_values": []
+    },
+    {
+      "id": 27,
+      "type": "MeshToFile3D",
+      "pos": [4720, 200],
+      "size": [220, 60],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [{ "name": "mesh", "type": "MESH", "link": 47 }],
+      "outputs": [{ "name": "model_3d", "type": "FILE_3D_GLB", "links": [48] }],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "MeshToFile3D" },
+      "widgets_values": []
+    },
+    {
+      "id": 28,
+      "type": "SaveGLB",
+      "pos": [5000, 200],
+      "size": [300, 120],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [
+        { "name": "mesh", "type": "MESH,FILE_3D_GLB", "link": 48 }
+      ],
+      "outputs": [],
+      "title": "Salvar .glb",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "SaveGLB" },
+      "widgets_values": ["smoll_skin_red_3d"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 3, 1, "IMAGE"],
+    [2, 2, 0, 3, 0, "BACKGROUND_REMOVAL"],
+    [3, 3, 0, 4, 1, "MASK"],
+    [4, 1, 0, 4, 0, "IMAGE"],
+    [5, 4, 0, 6, 1, "IMAGE"],
+    [6, 5, 0, 6, 0, "CLIP_VISION"],
+    [7, 6, 0, 12, 1, "CONDITIONING"],
+    [8, 6, 1, 12, 2, "CONDITIONING"],
+    [9, 7, 0, 8, 0, "MODEL"],
+    [10, 8, 0, 12, 0, "MODEL"],
+    [11, 8, 0, 15, 0, "MODEL"],
+    [12, 8, 0, 17, 0, "MODEL"],
+    [13, 8, 0, 20, 0, "MODEL"],
+    [14, 9, 0, 12, 3, "LATENT"],
+    [15, 10, 0, 13, 1, "VAE"],
+    [16, 10, 0, 16, 3, "VAE"],
+    [17, 10, 0, 18, 1, "VAE"],
+    [18, 11, 0, 21, 1, "VAE"],
+    [19, 12, 0, 13, 0, "LATENT"],
+    [20, 6, 0, 14, 0, "CONDITIONING"],
+    [21, 6, 1, 14, 1, "CONDITIONING"],
+    [22, 13, 0, 14, 2, "VOXEL"],
+    [23, 14, 0, 15, 1, "CONDITIONING"],
+    [24, 14, 0, 16, 0, "CONDITIONING"],
+    [25, 14, 1, 15, 2, "CONDITIONING"],
+    [26, 14, 1, 16, 1, "CONDITIONING"],
+    [27, 14, 2, 15, 3, "LATENT"],
+    [28, 15, 0, 16, 2, "LATENT"],
+    [29, 16, 0, 17, 1, "CONDITIONING"],
+    [30, 16, 0, 19, 0, "CONDITIONING"],
+    [31, 16, 1, 17, 2, "CONDITIONING"],
+    [32, 16, 1, 19, 1, "CONDITIONING"],
+    [33, 16, 2, 17, 3, "LATENT"],
+    [34, 17, 0, 18, 0, "LATENT"],
+    [35, 17, 0, 19, 2, "LATENT"],
+    [36, 18, 0, 22, 0, "MESH"],
+    [37, 18, 1, 21, 2, "SHAPE_SUBDIVIDES"],
+    [38, 19, 0, 20, 1, "CONDITIONING"],
+    [39, 19, 1, 20, 2, "CONDITIONING"],
+    [40, 19, 2, 20, 3, "LATENT"],
+    [41, 20, 0, 21, 0, "LATENT"],
+    [42, 21, 0, 26, 1, "VOXEL"],
+    [43, 22, 0, 23, 0, "MESH"],
+    [44, 23, 0, 24, 0, "MESH"],
+    [45, 24, 0, 25, 0, "MESH"],
+    [46, 25, 0, 26, 0, "MESH"],
+    [47, 26, 0, 27, 0, "MESH"],
+    [48, 27, 0, 28, 0, "FILE_3D_GLB"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.1
+}

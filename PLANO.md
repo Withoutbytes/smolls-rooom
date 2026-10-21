@@ -89,7 +89,20 @@ Referência pronta: `tools/raw/smoll_real_raw.png` (corpo inteiro, A-pose, fundo
 
 Depois do GLB: carregar com `GLTFLoader` no lugar do Smoll de primitivas, normalizar a altura (~1,75 m), calcular normais se faltarem, e decidir a pose. O modelo sai em A-pose em pé; para ele sentado no PC, ou rodar um rig simples (como o `RIGS` do aethercore) ou usar o Smoll em pé como NPC que levanta da cadeira.
 
-## 4.3 Interações implementadas (`src/interact.ts`)
+## 4.3 Skin nova: cueca vermelha (ComfyUI local, sem Colab)
+
+O Smoll tem duas skins: a casual (moletom, `smoll_real`) e a de cueca vermelha (tanque vermelho, cueca, ligas e meias até o joelho), a partir de `tools/ref/smoll_skin_red.png`.
+
+Pipeline toda na máquina (RTX 5070 Ti), sem custo e sem Colab:
+
+1. **Limpar a foto** — `tools/comfy/skin_red_pipeline.json`: Birefnet recorta o corpo, o personagem é colado sobre fundo branco puro (sem difusão, o rosto e a roupa não mudam), uma passada de RealVisXL V5.0 com `denoise 0.35` só adiciona detalhe, e `4x-UltraSharp` faz o upscale real.
+   - Saída: `tools/raw/smoll_skin_red_raw.png` (1024x2368) e `tools/raw/smoll_skin_red_640.png` (640x1472, entrada do 3D).
+2. **Sprite do jogo** — `key_white()` do `gen_assets.py` transforma o fundo branco em transparente e recorta: `public/sprites/smoll_skin_red.png` (700x2238 RGBA).
+3. **3D** — `tools/comfy/skin_red_trellis2.json` usa TRELLIS.2 (já instalado: `trellis_2_int8_convrot.safetensors` + VAEs de forma e textura) e salva `public/models/smoll_skin_red.glb` (37 mil vértices, 150 mil triângulos, cores por vértice, UV aberta). Detalhes em `tools/comfy/README.md`.
+
+O TRELLIS.2 local funciona e é rápido o suficiente para experimentar; o Hunyuan3D-2.1 do Colab continua sendo o caminho para versão final (textura PBR em 4K, topologia melhor). Se o TRELLIS faltar memória, baixar `RemeshMesh.resolution` para 256.
+
+## 4.4 Interações implementadas (`src/interact.ts`)
 
 Mira no objeto → `[E] ação`. Armários e guarda-roupa abrem, geladeiras (+bebida), caixa de ferramentas, TV, ventilador, abajur, cama (soneca), rede, mangas na mangueira, torneira, churrasqueira, portão da garagem e porta da frente. **Smoll**: menu por teclas 1–5 com "o que você tá fazendo", **códigos** (turbo, gigante, smoll mode, 20 s) e **bypass** (portão da garagem, geladeira grátis, teleporte pro quintal, "o PC do Smoll" ele recusa).
 
@@ -151,3 +164,106 @@ Template de prompt: `"<item>, front view, [estilo escolhido], transparent backgr
 - **Sprite 2D visto de ângulo**: móveis como planos "somem" de lado. Solução: billboard que sempre encara a câmera (já previsto) e móveis grandes (cama, sofá) como caixas com textura nas faces.
 - **Consistência de estilo nos sprites**: fixar o prompt de estilo e gerar tudo na mesma sessão.
 - **Multiplayer**: começar com sala única, sem login. Contas e salas só se o jogo pegar.
+
+## 9. Mundo aberto, casas e física (decisão do usuário)
+
+O mundo **não é limitado** à vizinhança da casa do Smoll: o usuário quer poder explorar o bairro, entrar em outras casas e, depois, em faculdades e outros lugares. A ideia é crescer aos poucos, com cada lugar entrável sendo um interior próprio (porta com `E`, fade, spawn), carregado sob demanda e com sala própria no multiplayer.
+
+**Física (feita)**: gravidade, pulo (espaço) e colisão **com altura**: cada objeto tem uma caixa com topo e base (`block(x0, z0, x1, z1, topo, base)` em `props.ts`). Dá pra subir em cama (0,66 m), mesas (0,77 m), bancada, balcão, sofá, capô do carro, etc.; objetos mais altos bloqueiam. Chega de paredes invisíveis dentro da casa. As paredes invisíveis que sobram ficam só nas bordas do mundo.
+
+Próximos passos: interiores das outras casas (zonas), faculdade (salas, laboratório com PCs que rodam o editor de código do Smoll) e sincronizar o Smoll/portões pelo servidor.
+
+## 10. Expansão de conteúdo da casa do Smoll (planejamento)
+
+Princípio: **tudo que tem forma de objeto deve ter pelo menos uma resposta** (olhar, abrir, pegar, usar item, ligar). Os blocos de código que já existem e devem ser reaproveitados: `act(obj, label, fn, use?)` (interação + reação a item), `thing()` (item pegável que vai pro inventário), `openPanel()` / `openChest()` (menu e baú, `src/menu.ts`), `defineItem()` / `give()` (`src/inventory.ts`), `ticks` (animações), `energy` (consumo de luz) e o relógio do jogo (`gameHour()`).
+
+### 10.1 Sistemas novos (fazer antes de encher os cômodos)
+1. **Receitas / bancada de trabalho**: combinar itens (ex.: Kuat + manga = "Kuat de manga"; café + leite = cappuccino). Painel com 2 slots + resultado, na cozinha e na oficina.
+2. **Necessidades do jogador (opcional, leve)**: sede, fome e sono como barras discretas. Kuat/picolé/manga recuperam; cama dá sono; banheiro tem sua função. Só efeito cômico, sem morrer.
+3. **Humor do Smoll** (`mood`): sobe com comida, Kuat e presentes; cai com campainha, itens suspeitos e apagão. Muda falas, animação ociosa e o que ele aceita. Já existe a escalada da campainha como protótipo.
+4. **Rotina do Smoll pelo relógio**: de manhã café na cozinha, meio-dia sofá/TV, tarde PC, noite jogo, madrugada cama. Ele anda pelos cômodos usando os mesmos waypoints da animação da cama.
+5. **Missões/pedidos**: o Smoll pede coisas ("traz uma Kuat gelada", "acha o controle da TV") e dá recompensa (item raro, acesso a lugar). Lista no menu `J`.
+6. **Som espacial de verdade** (Web Audio com `PannerNode`): TV (sem o iframe), ventiladores, chuveiro, geladeira, campainha, passos, cachorro. Volume e panorâmica pela distância e direção.
+7. **Sincronia no servidor**: portão, luzes, TV, Smoll, itens pegos (respawn global), hora do jogo.
+
+### 10.2 Conteúdo por cômodo
+**Sala** (já tem TV, sofá, estante, tapete): console de videogame (jogar um mini-jogo 2D na TV), caixas de som/bluetooth que mudam a música, estante com livros pegáveis (cada um com texto), vitrine com troféus e action figures, mesa de centro com controle remoto e controles de videogame, janela com cortina que abre, gaveta com garantias e cabos, quadro de fotos que conta a história do Smoll.
+**Cozinha** (geladeira, bancada, armários): fogão com 4 bocas (cozinhar: miojo, ovo, cuscuz, café, com tempo e risco de queimar), micro-ondas (esquentar e explodir o que não devia), cafeteira, liquidificador, pia com louça acumulada (lavar), lixeira com reciclagem, despensa com mantimentos, mesa de jantar com cadeiras, filtro de água, relógio de parede, imã de geladeira com lista de compras.
+**Corredor**: quadro de disjuntores (mesmo painel do relógio de luz, por cômodo), porta-chaves com chaves de moto e carro, sapateira, espelho de corpo inteiro, cabideiro, extintor, rodapé com tomadas (carregar celular).
+**Quarto**: guarda-roupa por dentro (trocar de roupa de verdade, não só a bermuda), criado-mudo com gavetas, cama com cobertor que dobra, celular do Smoll (lê mensagens engraçadas), despertador, varal de LED, poster com easter egg, janela com persiana, cesto de roupa suja, halteres esquecidos, violão (tocar notas), mochila pegável com itens aleatórios.
+**Banheiro**: já tem privada, pia, chuveiro, espelho e armário. Falta: toalha que molha, balança (peso comicamente variável), cesto, ralo que entope, vapor no espelho, pia que enche, luz de emergência.
+**Oficina (ex-garagem)**: bancada com ferramentas pegáveis (chave de fenda, martelo, multímetro), gavetas de parafusos, impressora 3D que imprime brinquedos, osciloscópio, solda (mini-jogo), prateleira com peças de PC, caixas etiquetadas, quadro de ideias.
+**Varanda**: rede (deitar e balançar), vasos que regam, tapete, cadeira de balanço, gaiola de passarinho, churrasqueira portátil, vista da rua, varal pequeno.
+**Garagem/quintal**: carro e moto já são dirigíveis; falta capô/porta-malas abrindo, ferramentas, galão de gasolina (abastecer), mangueira com água de verdade (regar plantas que crescem), horta, mangueira (árvore) que dá manga por hora do dia, galinheiro, tanque de lavar roupa funcionando, cachorro no quintal, piscina de plástico, trampolim, rede de vôlei, varal que seca roupas de fato.
+**Calçada**: relógio de luz (feito), caixa de correio (feita), campainha escalonada (feita), cachorro, lixeira, carrinho de picolé, cadeira. Falta: ponto de ônibus, orelhão, vendedor ambulante que passa em horários, entregador, motoboy, coleta de lixo que passa de manhã, vizinhos NPC que cumprimentam.
+
+### 10.3 Itens (cada um com ícone, modelo 3D na mão e reação)
+Comida: ovo, miojo pronto, pão, cuscuz, café, leite, suco de manga. Ferramentas: chave de fenda, martelo, lanterna (usa luz de verdade na mão), multímetro. Eletrônicos: celular, controle da TV, fone, pendrive com pistas, cabo USB. Chaves: carro, moto, portão, armário trancado. Roupas: chapéu, óculos, moletom, chinelo (usar muda o visual do jogador). Quest: diário (páginas), foto antiga, mapa do bairro, ingresso. Cada item novo = uma linha em `defineItem` + reações em `use` dos objetos.
+
+### 10.4 Interações ricas (padrões)
+- **Containers com menu** (feito: caixa de correio): geladeira, gavetas, guarda-roupa, mochila, caixa de ferramentas.
+- **Painéis** (feito: relógio de luz, controle da TV, desktop do PC): disjuntores, console, fogão, cafeteira, celular, balança, computador da oficina.
+- **Item na mão em objeto**: chave abre porta, lanterna ilumina o armário escuro, comida pro cachorro, ferramenta conserta a torneira, pano limpa o espelho.
+- **Reações em cadeia**: apagão desliga TV, ventilador, geladeira (leite estraga); campainha irrita o Smoll; Kuat demais deixa ele agitado.
+- **Mini-jogos curtos**: fliperama, tiro ao alvo no quintal, digitação, memória com os itens do armário.
+
+### 10.5 Ordem sugerida
+1. Itens/receitas + fogão e cozinha viva (rápido, usa o que já existe). 2. Guarda-roupa e troca de roupa visual do jogador. 3. Humor e rotina do Smoll com o relógio. 4. Som espacial real. 5. Quintal vivo (horta, manga por hora, mangueira). 6. Missões e menu `J`. 7. Mini-jogos e console na sala. 8. Sincronização no servidor de tudo que muda estado. 9. Entrar nas casas dos vizinhos reutilizando os mesmos helpers.
+
+
+## 11. Vida social e cômodos vazios (planejamento)
+
+Estado atual: **quarto, cozinha, banheiro, quintal da frente e calçada** já têm bastante interação. **Sala, varanda, oficina, corredor, garagem e quintal dos fundos** estão quase vazios (a sala tem TV com YouTube, sofá, estante e tapete; o resto é cenário). Objetivo: cada cômodo ter um **papel social** (onde os jogadores se juntam, fazem algo juntos e chamam o Smoll), e a casa funcionar como ponto de encontro do multiplayer.
+
+### 11.1 Sistemas novos (base pra tudo abaixo)
+1. **Assentos** (`seat(obj, pose, offset)`): E num sofá/cadeira/banco/rede senta, a câmera desce e vira pra frente do móvel, WASD levanta. Cada assento guarda quem está sentado (1 jogador por lugar). No multiplayer o servidor guarda `seats: {id → playerId}` e o corpo do visitante usa a pose sentada (já existe a pose `SIT` do Smoll em `smollAnim.ts`, reaproveitar no rig do visitante).
+2. **Emotes e gestos dos jogadores**: acenar, apontar, rir, dançar, sentar-se de qualquer jeito, aplaudir (tecla `B` abre roda de emotes). Os visitantes já têm gestos ociosos; falta disparar sob comando e sincronizar pelo servidor.
+3. **Convidar o Smoll** (`state.cmd('task:...')` já anda e usa objetos): novas tarefas "senta comigo", "vem assistir", "vamos jogar", "vem pro quintal". Ele escolhe um lugar livre (assento mais perto do jogador), senta e fica reagindo ao que passa na TV.
+4. **Eventos da casa** (`houseEvent`): atividades coletivas com início/fim, início anunciado no chat e participantes registrados: sessão de filme, noite de jogos, churrasco, festa, estudo. Cada evento liga os objetos certos (TV, som, luz, churrasqueira), muda o humor do Smoll e pode dar item raro no final.
+5. **Chat de texto e de voz por proximidade**: balão de fala curto sobre a cabeça + log. Voz com WebRTC se couber, volume pela distância (casa com o som espacial do item 10.1.6).
+6. **Humor e relacionamento do Smoll** (`mood`, `friendship[playerId]`): sobe com presentes, convites e eventos; desbloqueia falas, itens e tarefas. Já temos o protótipo da campainha irritando ele.
+7. **Persistência** (localStorage + servidor): inventário, amizade com o Smoll, itens da casa que mudaram de lugar.
+
+### 11.2 Sala (maior prioridade: é o ponto de encontro)
+- **Sofá de 3 lugares + poltrona + puffs**: sentar (sistema de assentos). Quem senta vira "plateia" da TV: os visitantes sentados ganham a mesma câmera voltada pra TV.
+- **TV como evento**: "Sessão de filme" com votação (cada um escolhe entre 4 vídeos do YouTube via o controle) e **sincronia no servidor** (mesmo vídeo, mesmo tempo pra todo mundo). Smoll comenta no meio ("esse final é ruim") e dá pipoca.
+- **Videogame**: console no rack com 2 controles pegáveis; mini-jogos 2D na própria tela da TV (pong, corrida, jogo da velha, quiz) pra 1–2 jogadores; Smoll joga contra você e perde de propósito às vezes.
+- **Mesa de centro**: pipoca, copos, Kuat, controles (pegáveis, vão pra mesa de volta); "preparar pipoca" no micro-ondas.
+- **Som**: caixa bluetooth e vitrola com playlist (gerada por Web Audio ou links). Volume por distância, tema muda o humor.
+- **Estante/vitrine**: livros pegáveis (cada um com um texto curto), action figures, troféus, jogo de tabuleiro (abre mini-jogo), álbum de fotos (mostra as fotos tiradas com o celular).
+- **Janela com cortina** que abre e fecha; **ar-condicionado/ventilador** com controle; **quadro de aviso** com recados dos jogadores.
+
+### 11.3 Varanda
+- **Rede** de verdade: deitar e balançar (assento especial), 2 lugares.
+- **Cadeira de balanço**, mesinha com tereré/café e baralho: jogo de cartas (truco) com 2–4 jogadores.
+- **Vasos que regam** (mangueira/regador pegáveis) e crescem; gaiola de passarinho que canta de dia; vista da rua com **binóculos** (zoom nos vizinhos e passantes).
+- **Cadeira de praia + violão** (o violão do quarto pode vir pra cá): "show" com o Smoll tocando e os jogadores batendo palma.
+
+### 11.4 Oficina (ex-garagem fechada)
+- **Bancada**: ferramentas pegáveis (chave de fenda, martelo, multímetro, solda); **consertar** objetos quebrados da casa (torneira, ventilador, controle) como pequena missão.
+- **Impressora 3D**: escolhe um brinquedo, imprime em 30 s e vira item.
+- **Bancada de PC**: montar/desmontar peças (mini-quebra-cabeça), osciloscópio, prateleiras etiquetadas, quadro de ideias onde jogadores deixam post-its (persistente).
+- **Moto na oficina**: trocar óleo, encher pneu, ligar (já é pilotável).
+
+### 11.5 Corredor e entrada
+- **Quadro de disjuntores** por cômodo (já existe o disjuntor geral no relógio de luz); **porta-chaves** (chaves da moto, do carro, do portão); **sapateira** (tirar o calçado ao entrar, o Smoll reclama se não tirar); **espelho de corpo inteiro** (usa o avatar já pronto no reflexo); **cabideiro** com chapéus/óculos/moletom que mudam o visual do jogador.
+- **Interfone/câmera da porta**: ver quem toca a campainha, liberar o portão de dentro.
+
+### 11.6 Garagem e quintal
+- **Churrasco**: churrasqueira que acende de verdade (já tem o carvão), carnes pegáveis, ponto da carne, mesa com cadeiras de plástico, som e cooler com bebida (vira o evento "Churrasco" com vários jogadores).
+- **Horta e mangueira**: plantar, regar, colher mangas por hora do dia; galinheiro; cachorro caramelo que segue quem tem comida.
+- **Esportes**: bola de futebol (chutar/arremessar com a física já pronta de itens soltos), rede de vôlei, trampolim, piscina de plástico (nadar/boiar).
+- **Garagem**: carro e moto dirigíveis com passageiros (convidar amigos), capô/porta-malas abrindo, galão de gasolina, lavar o carro com a mangueira.
+
+### 11.7 Quarto e banheiro (completar)
+- **Quarto**: guarda-roupa por dentro (trocar de roupa de verdade, visual do jogador e do Smoll), cama pra 2 (deitar lado a lado), celular do Smoll (já temos), cesto de roupa, janela com persiana, pôster-segredo.
+- **Banheiro**: toalha que molha, balança, vapor no espelho depois do banho, ralo que entope, pia que enche.
+
+### 11.8 Visitantes (multiplayer) e Smoll anfitrião
+- **Chegada**: tocar a campainha já aciona o Smoll (escalada de irritação). Falta ele **receber** o jogador na porta (anda até o portão, acena, "entra aí") quando ele está acordado e de bom humor.
+- **Anfitrião**: Smoll oferece bebida/lanche aos visitantes, convida pra sentar, comenta o que cada um carrega, reage a itens suspeitos.
+- **Tarefas em dupla**: "ajuda a carregar", "segura aqui", "entrega isso pro Smoll" (missões cooperativas pequenas).
+- **Estados da casa sincronizados**: luzes, TV, portão, itens soltos, assentos, evento atual. O servidor vira o dono desse estado (hoje manda só posição e hora).
+
+### 11.9 Ordem sugerida
+1. **Assentos + sofá/poltrona/puffs + emotes** (destrava a parte social). 2. **Sessão de filme sincronizada** + pipoca + convidar o Smoll pra assistir. 3. **Rede e varanda** (assentos especiais + truco). 4. **Churrasco no quintal** (evento completo). 5. **Videogame na sala** com mini-jogos. 6. **Guarda-roupa** e visual do jogador. 7. **Oficina viva** (ferramentas, consertos, impressora). 8. **Anfitrião e amizade com o Smoll**. 9. **Voz/chat por proximidade** e persistência no servidor.

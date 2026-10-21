@@ -4,29 +4,28 @@ import { state } from './state'
 // 'M' muro, 'g' garagem aberta (só telhado), 'Y' quintal (céu aberto), '.' passagem, letras = cômodos,
 // 'C' calçada, 'R' rua, 'X' parede invisível. Colunas: casa 0–19, garagem/quintal 20–27, muro/portão 28, rua 29–38.
 const HOUSE = [
-  '##w#######w#####w###',
+  '####################',
   '#GGGGGG#SSSSS#KKKKK#',
   '#GGGGGG#SSSSS#KKKKK#',
   '#GGGGGG.SSSSS.KKKKKw',
   '#GGGGGG#SSSSS#KKKKK#',
   '#GGGGGG#SSSSS#KKKKK#',
   '####.#####.#####.###',
-  '#HHHHHHHHHHHHHHHHHH#',
+  '#HHHHHHHHHHHHHHHHHHw',
   '#HHHHHHHHHHHHHHHHHHF',
-  '#HHHHHHHHHHHHHHHHHH#',
+  '#HHHHHHHHHHHHHHHHHHw',
   '###.#####.#####.####',
+  '#VVVVV#BBBB#QQQQQQQw',
   '#VVVVV#BBBB#QQQQQQQ#',
   '#VVVVV#BBBB#QQQQQQQ#',
   '#VVVVV#BBBB#QQQQQQQ#',
-  '#VVVVV#BBBB#QQQQQQQ#',
-  '#####w#######w######',
+  '########w###########',
 ]
 const houseRow = (z: number) => (z < HOUSE.length ? HOUSE[z] : z === 16 ? 'X'.repeat(19) + 'M' : 'X'.repeat(20))
 const yardRow = (z: number) => (z === 0 || z === 16 ? 'MMMMMMMM' : z <= 5 ? 'gggggggg' : z <= 15 ? 'YYYYYYYY' : 'XXXXXXXX')
 const fence = (z: number) => (z === 0 ? 'T' : z <= 5 ? 'P' : z <= 16 ? 'T' : 'X') // T = muro de pedra; a única entrada é o portão de correr (P)
-// z 0 = tampa invisível; z 25–30 = cruzamento com a rua transversal (esquina); z 31 = tampa
-const street = (z: number) => (z === 0 || z >= 31 ? 'X'.repeat(14) : z >= 25 ? 'RRRRRRRRRR' + 'XXXX' : 'CCRRRRRRCC' + 'XXXX')
-export const MAP = Array.from({ length: 32 }, (_, z) => houseRow(z) + yardRow(z) + fence(z) + street(z))
+const street = () => 'CCRRRRRRCC' + 'XXXX' // calçada x29–30, asfalto x31–36, calçada x37–38; o resto da rua vem do bairro.ts
+export const MAP = Array.from({ length: 32 }, (_, z) => houseRow(z) + yardRow(z) + fence(z) + street())
 
 // G oficina, S sala, K cozinha, H corredor, V varanda, B banheiro, Q quarto do Smoll
 export const FLOOR: Record<string, number> = {
@@ -37,14 +36,15 @@ export const WALL: Record<string, number> = { '#': 0xe8dcc0, M: 0xd8cdb8, T: 0x9
 export const WALL_H: Record<string, number> = { '#': 2.6, M: 1.8, T: 2.0 }
 export const OUTDOOR = 'YCR' // sem teto (a garagem 'g' e o portão 'P' têm telhado)
 
-// Onde dá pra andar fora do mapa: a rua principal (x 29–39, z −60 a 90) e a transversal (z 23–33, x −60 a 120).
-// O resto do lado de fora é parede invisível, bem longe da casa pra dar pra explorar.
-const inStreet = (x: number, z: number) => (x >= 29 && x <= 39 && z >= -60 && z <= 90) || (z >= 23 && z <= 33 && x >= -60 && x <= 120)
+import { inWorld } from './bairro'
 
-export const solid = (x: number, z: number) => {
+// Altura do topo do que existe na célula (0 = livre; Infinity = parede invisível da borda do mundo). Muros (1,8–2 m) e paredes dão pra subir pulando.
+export const WALL_TOP: Record<string, number> = { '#': 2.6, w: 2.6, M: 1.8, T: 2.0 }
+export const topAt = (x: number, z: number) => {
   const c = MAP[Math.floor(z)]?.[Math.floor(x)]
-  if (c === undefined || c === 'X') return !inStreet(x, z)
-  if (c === 'P') return !state.gateOpen
-  if (c === 'F') return !state.doorOpen
-  return c === '#' || c === 'M' || c === 'T' || c === 'w'
+  if (c === undefined || c === 'X') return inWorld(x, z) ? 0 : Infinity
+  if (c === 'P') return state.gateOpen ? 0 : 2.0
+  if (c === 'F') return state.doorOpen ? 0 : 2.1
+  return WALL_TOP[c] ?? 0
 }
+export const solid = (x: number, z: number) => topAt(x, z) > 0

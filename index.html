@@ -8,27 +8,42 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #111; }
     #hud { position: fixed; inset: 0; display: grid; place-items: center; color: #fff; font: 16px sans-serif; pointer-events: none; text-shadow: 0 1px 3px #000; }
     #tip { position: fixed; left: 50%; top: 56%; transform: translateX(-50%); display: none; color: #fff; font: 15px sans-serif; background: #000a; padding: 6px 12px; border-radius: 6px; pointer-events: none; }
-    #toast { position: fixed; left: 50%; bottom: 14%; transform: translateX(-50%); opacity: 0; transition: opacity .3s; color: #fff; font: 16px sans-serif; background: #000b; padding: 8px 16px; border-radius: 8px; pointer-events: none; text-align: center; max-width: 80vw; }
+    #toast { position: fixed; left: 50%; bottom: 14%; transform: translateX(-50%); opacity: 0; transition: opacity .3s; color: #fff; font: 16px sans-serif; background: #000b; padding: 8px 16px; border-radius: 8px; pointer-events: none; text-align: center; max-width: 80vw; white-space: pre-line; }
     #counts { position: fixed; right: 14px; top: 10px; color: #fff; font: 16px sans-serif; text-shadow: 0 1px 3px #000; pointer-events: none; }
     #fade { position: fixed; inset: 0; background: #000; opacity: 0; transition: opacity .6s; pointer-events: none; }
     #dialog { position: fixed; left: 50%; bottom: 6%; transform: translateX(-50%); display: none; width: min(560px, 92vw); color: #eee; font: 15px sans-serif; background: #111e; border: 1px solid #555; border-radius: 10px; padding: 12px 16px; }
-    #dialog p { margin: 6px 0 8px; } #dialog b { color: #7ee787; } #dialog div { padding: 3px 0; }
+    #dialog .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    #dialog button { text-align: left; padding: 8px 10px; background: #222a; color: #eee; border: 1px solid #444; border-radius: 6px; font: 15px sans-serif; cursor: pointer; }
+    #dialog button:hover { background: #2f6f3f; }
+    #dialog p { margin: 6px 0 8px; } #dialog b { color: #7ee787; } 
     #dialog pre { margin: 0 0 8px; padding: 8px; background: #0d1117; color: #79c0ff; border-radius: 6px; font: 13px monospace; white-space: pre-wrap; }
     #labels { position: fixed; inset: 0; display: none; pointer-events: none; }
     #labels span { position: absolute; transform: translate(-50%, -50%); color: #fff; font: bold 13px sans-serif; text-shadow: 0 0 4px #000, 0 0 4px #000; white-space: nowrap; }
-    #editor { position: fixed; inset: 8% 12%; display: none; flex-direction: column; background: #0d1117f2; border: 1px solid #30363d; border-radius: 10px; z-index: 5; font: 14px sans-serif; color: #e6edf3; }
-    #editor .bar { padding: 10px 14px; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; } #editor .bar b { flex: 1; color: #7ee787; }
-    #editor button { background: #238636; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; } #editor button.sec { background: #30363d; }
-    #ta { flex: 1; background: #0d1117; color: #e6edf3; border: 0; padding: 14px; font: 14px/1.5 monospace; resize: none; outline: none; }
-    #out { margin: 0; padding: 10px 14px; border-top: 1px solid #30363d; color: #79c0ff; font: 13px monospace; white-space: pre-wrap; max-height: 28%; overflow: auto; }
+    #hud, #cross, #tip, #toast, #counts, #fade, #labels, #dialog { z-index: 10; } /* acima do canvas (z-index 1) */
+    #clock { position: fixed; right: 14px; top: 34px; color: #fff; font: 15px sans-serif; text-shadow: 0 1px 3px #000; pointer-events: none; z-index: 10; }
+    #loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: linear-gradient(#0d122066, #0d1220cc), url(/img/loading_bg.jpg) center/cover no-repeat, radial-gradient(circle at 50% 35%, #2b4a7a, #0d1220 70%); color: #fff; font: 16px sans-serif; transition: opacity .7s; }
+    #loading .box { text-align: center; width: min(440px, 88vw); }
+    #loading .logo { font: 700 38px sans-serif; text-shadow: 0 3px 14px #000a; }#loading .sub { opacity: .7; margin: 4px 0 26px; }
+    #loading .barwrap { height: 12px; background: #ffffff22; border-radius: 8px; overflow: hidden; }#loading .fill { height: 100%; width: 0; background: linear-gradient(90deg, #7ee787, #2f81f7); }
+    #loading .msg { margin: 12px 0 14px; min-height: 22px; opacity: .9; }
+    #loading .dance { position: relative; height: 270px; width: 170px; margin: 0 auto 4px; animation: smollDance 1.2s ease-in-out infinite; transform-origin: 50% 100%; }
+    #loading .dance img { position: absolute; bottom: 0; left: 0; height: 270px; filter: drop-shadow(0 6px 10px #000a); }
+    #loading .f1 { animation: swapA .6s steps(1) infinite; } #loading .f2 { animation: swapB .6s steps(1) infinite; }
+    #loading .n { position: absolute; font-size: 26px; opacity: 0; animation: note 2.1s ease-out infinite; } #loading .n1 { left: -14px; top: 40px; } #loading .n2 { right: -10px; top: 20px; animation-delay: .7s; } #loading .n3 { left: 50%; top: 0; animation-delay: 1.4s; }
+    @keyframes smollDance { 0%, 100% { transform: translateY(0) rotate(-5deg) scaleY(1); } 25% { transform: translateY(-16px) rotate(0) scaleY(1.04); } 50% { transform: translateY(0) rotate(5deg) scaleY(.96); } 75% { transform: translateY(-16px) rotate(0) scaleY(1.04); } }
+    @keyframes swapA { 0% { opacity: 1; } 50% { opacity: 0; } } @keyframes swapB { 0% { opacity: 0; } 50% { opacity: 1; } }
+    @keyframes note { 0% { opacity: 0; transform: translateY(20px); } 30% { opacity: .9; } 100% { opacity: 0; transform: translateY(-50px) rotate(18deg); } }
+    #loading button { background: #238636; color: #fff; border: 0; border-radius: 10px; padding: 12px 34px; font: 700 18px sans-serif; cursor: pointer; }#loading button:hover { background: #2ea043; }
+    #loading .tip { margin-top: 22px; font-size: 13px; opacity: .6; }
     #cross { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #fff8; }
   </style>
 </head>
 <body>
+  <div id="loading"><div class="box"><div class="dance"><img class="f1" src="/img/smoll_a.png" alt=""><img class="f2" src="/img/smoll_b.png" alt=""><span class="n n1">♪</span><span class="n n2">♫</span><span class="n n3">♪</span></div><div class="logo">🏠 Smoll's Room</div><div class="sub">Ariquemes · Rondônia</div><div class="barwrap"><div class="fill"></div></div><div class="msg">Carregando…</div><div class="tip"></div></div></div>
   <div id="hud">Clique para jogar — WASD anda, mouse olha, <b>E</b> interage (olhe pro objeto), ESC solta o mouse</div>
   <div id="cross"></div>
-  <div id="tip"></div><div id="toast"></div><div id="counts">🥭 0   🥤 0</div><div id="fade"></div><div id="labels"></div>
-  <div id="editor"><div class="bar"><b>smoll.ts — PC do Smoll</b><button id="run">▶ Executar (Ctrl+Enter)</button><button id="reset" class="sec">Restaurar</button><button id="close" class="sec">Fechar (Esc)</button></div><textarea id="ta" spellcheck="false"></textarea><pre id="out"></pre></div><div id="dialog"></div>
+  <div id="tip"></div><div id="toast"></div><div id="clock"></div><div id="counts">🥭 0   🥤 0</div><div id="fade"></div><div id="labels"></div>
+  <div id="dialog"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
