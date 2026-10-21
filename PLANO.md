@@ -98,9 +98,12 @@ Pipeline toda na máquina (RTX 5070 Ti), sem custo e sem Colab:
 1. **Limpar a foto** — `tools/comfy/skin_red_pipeline.json`: Birefnet recorta o corpo, o personagem é colado sobre fundo branco puro (sem difusão, o rosto e a roupa não mudam), uma passada de RealVisXL V5.0 com `denoise 0.35` só adiciona detalhe, e `4x-UltraSharp` faz o upscale real.
    - Saída: `tools/raw/smoll_skin_red_raw.png` (1024x2368) e `tools/raw/smoll_skin_red_640.png` (640x1472, entrada do 3D).
 2. **Sprite do jogo** — `key_white()` do `gen_assets.py` transforma o fundo branco em transparente e recorta: `public/sprites/smoll_skin_red.png` (700x2238 RGBA).
-3. **3D** — `tools/comfy/skin_red_trellis2.json` usa TRELLIS.2 (já instalado: `trellis_2_int8_convrot.safetensors` + VAEs de forma e textura) e salva `public/models/smoll_skin_red.glb` (37 mil vértices, 150 mil triângulos, cores por vértice, UV aberta). Detalhes em `tools/comfy/README.md`.
+3. **3D** — `tools/comfy/skin_red_hunyuan3d.json` usa o Hunyuan3D 2.0 do ComfyUI (`hunyuan3d-dit-v2_fp16.safetensors`, `octree_resolution 512`) e `DecimateMesh` (QEM, 30 mil faces) para ficar leve: `public/models/smoll_skin_red_hunyuan.glb` (14.829 vértices, 29.564 triângulos, 700 KB).
+   - **Entrada quadrada obrigatória**: o `CLIPVisionEncode` faz `crop: center`, então um retrato 640x1472 recorta só o tronco e o corpo sai deformado. `tools/3d/square_input.py` centraliza o personagem num quadrado 1024x1024 (`tools/raw/smoll_skin_red_sq.png`) antes de gerar.
+   - Os nós Hunyuan3D do ComfyUI base são **só de forma** (malha cinza, sem textura). `tools/3d/paint_from_photo.py` projeta `tools/raw/smoll_skin_red_640.png` sobre a malha (alinhado pela altura e pela silhueta; as laterais e o traseiro pegam a cor da borda da silhueta) e escreve `COLOR_0` no GLB.
+4. **Ver no navegador** — `viewer.html` (raiz do projeto, servido pelo Vite em `/viewer.html`) alterna Hunyuan3D / TRELLIS.2 / modelo do moletom, com girar, arame e vista de lado.
 
-O TRELLIS.2 local funciona e é rápido o suficiente para experimentar; o Hunyuan3D-2.1 do Colab continua sendo o caminho para versão final (textura PBR em 4K, topologia melhor). Se o TRELLIS faltar memória, baixar `RemeshMesh.resolution` para 256.
+Limitação local: o Hunyuan3D do ComfyUI não tem a etapa de textura (multiview + Real-ESRGAN) nem UV, então a cor é uma projeção da foto — serve para protótipo. O Hunyuan3D-2.1 do Colab (`tools/3d/run_hq.py`) continua sendo o caminho para a versão final (textura PBR, topologia melhor). Detalhes dos nós em `tools/comfy/README.md`.
 
 ## 4.4 Interações implementadas (`src/interact.ts`)
 
@@ -267,3 +270,16 @@ Estado atual: **quarto, cozinha, banheiro, quintal da frente e calçada** já t�
 
 ### 11.9 Ordem sugerida
 1. **Assentos + sofá/poltrona/puffs + emotes** (destrava a parte social). 2. **Sessão de filme sincronizada** + pipoca + convidar o Smoll pra assistir. 3. **Rede e varanda** (assentos especiais + truco). 4. **Churrasco no quintal** (evento completo). 5. **Videogame na sala** com mini-jogos. 6. **Guarda-roupa** e visual do jogador. 7. **Oficina viva** (ferramentas, consertos, impressora). 8. **Anfitrião e amizade com o Smoll**. 9. **Voz/chat por proximidade** e persistência no servidor.
+
+## 12. Cozinha mais interativa (planejamento)
+Objetivo: a cozinha vira um lugar de fazer coisas de verdade (cozinhar, guardar, lavar, jogar fora), reaproveitando `thing`, `act(..., use)`, `openPanel/openChest`, `ticks` e as tarefas do Smoll.
+
+**Ordem de trabalho (cada bloco termina com `vite build`)**
+1. **Panelas no fogão**: panela e frigideira ficam sobre as bocas (E pega, clique com a peça na mão devolve); ao cozinhar a peça certa fica no fogão com a comida dentro e é só servir. Suporte de utensílios na parede (concha, espátula, pano de prato) e gaveta de talheres (garfo, faca, colher de sopa).
+2. **Mais itens nos armários e na geladeira**: arroz, feijão, macarrão, sal, óleo, pimenta no armário; queijo, presunto, legumes (tomate, cenoura), congelador (carne, sorvete, gelo) e molho na porta. Ímã com lista de compras (mostra o que falta).
+3. **Receitas novas**: arroz, feijão, bife, macarronada, pão com ovo (fogão); sanduíche (tábua) e vitamina de manga com leite + manga (liquidificador). Temperos não gastam.
+4. **Lixeira, pano e pia**: resíduos de verdade (casca de ovo/banana/laranja, miolo de maçã, embalagens, comida queimada); lixeira com tampa que enche e esvazia; pano de prato (limpa a mesa); pia lava peça específica (panela e frigideira ficam sujas depois de cozinhar; prato avulso).
+5. **Fruteira e bancada leste**: fruteira (banana, maçã, laranja, manga), cesta de pão, porta-copos, forninho elétrico, relógio de parede com a hora do jogo.
+6. **Smoll**: "Almoça de verdade" (usa prato limpo, garfo e faca, deixa louça suja) e "Guarda a compra" (sacola aparece na mesa quando falta coisa na geladeira; guardar repõe tudo).
+
+**Fora desta rodada**: lavar prato específico pelo Smoll, forninho que assa de verdade, mais bebidas, compras de verdade (sair de casa), persistência dos estados da cozinha no servidor.

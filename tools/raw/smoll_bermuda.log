@@ -1,0 +1,24 @@
+Reading prompt from stdin...
+OpenAI Codex v0.162.1
+--------
+workdir: C:\Users\mutecb\Documents\Projetos\smolls-rooom\tools\raw
+model: gpt-6-luna
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a1607a-55c8-7e33-8ab3-e72177a4ed12
+--------
+user
+Use your image generation tool to create exactly ONE image and nothing else (do not write code, do not edit files).
+
+The image shows ONE single game asset for a first-person game set inside a brick house in Rondonia, Brazil (hot Amazon climate, red dirt everywhere). Stylized hand-painted cartoon game art (rich colors, bold clean outlines, soft shading, lots of small realistic details like wear, dust, stickers, cables), seen straight from the FRONT, flat and orthographic, centered, filling most of the frame, completely in focus, nothing cropped. No ground, no cast shadow, no text, no frame, no border. Background: a perfectly flat solid pure white (#FFFFFF) fill, nothing else.
+
+The asset: a PHOTOREALISTIC full-body image of the man in the attached reference photo (second image: keep his face exactly recognizable: dark thick wavy voluminous hair swept up, strong eyebrows, brown eyes, full curved mustache joined to a trimmed dark beard with a goatee, olive skin). He stands straight facing the camera in a relaxed A-pose, arms slightly away from the body, legs slightly apart, feet visible, wearing a plain dark gray crew-neck t-shirt, plain navy-blue knee-length bermuda shorts (NO jeans, NO long pants) and simple plain black flip-flop slippers (chinelo) with bare feet and bare ankles clearly visible, bare shins and calves visible. Realistic skin texture, soft even studio lighting, face large and sharp and well lit, no objects in his hands, no shadow on the floor, whole body fully visible head to feet, centered.
+
+codex
+
+tokens used
+6.797
+

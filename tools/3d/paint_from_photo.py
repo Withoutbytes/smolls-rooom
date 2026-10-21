@@ -2,14 +2,20 @@
 
 Uso: python tools/3d/paint_from_photo.py <modelo.glb> <foto.png> <saida.glb>
 
-Projecao ortografica frontal: cada vertice pega a cor do pixel correspondente
-na imagem, alinhada pelo bounding box do personagem (nao da imagem inteira).
+A foto e uma vista frontal, entao:
+- a frente pega o pixel correspondente (projecao ortografica, alinhada pela altura
+  e pelo centro do personagem, nao pela caixa da imagem);
+- as laterais e a parte de tras ficam fora da silhueta na foto: a cor e pinçada da
+  borda da silhueta naquela linha (o corpo veste ao redor, entao isso funciona);
+- o tras recebe um sombreamento leve para dar profundidade.
 """
 import json
 import struct
 import sys
 
 from PIL import Image
+
+WHITE = 235
 
 
 def read_glb(path):
@@ -24,23 +30,23 @@ def read_glb(path):
         else:
             bin_off, bin_len = off + 8, clen
         off += 8 + clen
-    import json
-
     return json.loads(data[json_off : json_off + json_len]), data[bin_off : bin_off + bin_len]
 
 
-def subject_bbox(img):
-    """Caixa do personagem: pixels que nao sao perto do branco do fundo."""
+def silhouette(img):
+    """Para cada linha y, a coluna mais a esquerda e mais a direita do corpo."""
     w, h = img.size
-    xs, ys = [], []
     px = img.load()
-    for y in range(0, h, 2):
-        for x in range(0, w, 2):
-            r, g, b = px[x, y][:3]
-            if r < 235 or g < 235 or b < 235:
-                xs.append(x)
-                ys.append(y)
-    return min(xs), min(ys), max(xs), max(ys)
+    left = [None] * h
+    right = [None] * h
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r < WHITE or g < WHITE or b < WHITE:
+                if left[y] is None:
+                    left[y] = x
+                right[y] = x
+    return left, right
 
 
 def main():
@@ -60,26 +66,51 @@ def main():
 
     xs = [verts[i] for i in range(0, len(verts), 3)]
     ys = [verts[i + 1] for i in range(0, len(verts), 3)]
+    zs = [verts[i + 2] for i in range(0, len(verts), 3)]
     x0, x1 = min(xs), max(xs)
     y0, y1 = min(ys), max(ys)
+    z0, z1 = min(zs), max(zs)
 
     img = Image.open(img_path).convert("RGB")
-    sx0, sy0, sx1, sy1 = subject_bbox(img)
-    sw, sh = sx1 - sx0, sy1 - sy0
-    print(f"mesh bbox x[{x0:.3f},{x1:.3f}] y[{y0:.3f},{y1:.3f}]  subject bbox na foto: {sw}x{sh}")
+    w, h = img.size
+    left, right = silhouette(img)
+    rows = [y for y in range(h) if left[y] is not None]
+    sy0, sy1 = min(rows), max(rows)
+    sx0, sx1 = min(left[y] for y in rows), max(right[y] for y in rows)
+    print(
+        f"mesh x[{x0:.3f},{x1:.3f}] y[{y0:.3f},{y1:.3f}] z[{z0:.3f},{z1:.3f}]  "
+        f"silhueta na foto: {sx1 - sx0}x{sy1 - sy0}"
+    )
 
-    # alinha pela altura e mantem a proporcao real da foto (o modelo 3D e mais largo que a silhueta)
-    scale = sh / (y1 - y0)
+    # alinha pela altura e mantem a proporcao real da foto
+    scale = (sy1 - sy0) / (y1 - y0)
     cx = (x0 + x1) / 2.0
     img_cx = (sx0 + sx1) / 2.0
+    z_front, z_back = z1, z0
+    getpixel = img.getpixel
     colors = bytearray()
+    outside = 0
     for i in range(0, len(verts), 3):
-        px = int(img_cx + (verts[i] - cx) * scale)
-        py = int(sy0 + (1.0 - (verts[i + 1] - y0) / (y1 - y0)) * (sh - 1))
-        px = min(img.width - 1, max(0, px))
-        py = min(img.height - 1, max(0, py))
-        c = img.getpixel((px, py))
-        colors += struct.pack("<fff", c[0] / 255.0, c[1] / 255.0, c[2] / 255.0)
+        vx, vy, vz = verts[i], verts[i + 1], verts[i + 2]
+        py = int(sy0 + (1.0 - (vy - y0) / (y1 - y0)) * (sy1 - sy0))
+        py = min(h - 1, max(0, py))
+        px = int(img_cx + (vx - cx) * scale)
+        l, r = left[py], right[py]
+        if l is not None:
+            inset = min(8, max(1, (r - l) // 6))  # evita a borda anti-aliasada (quase branca)
+            if px < l:
+                px, outside = l + inset, outside + 1
+            elif px > r:
+                px, outside = r - inset, outside + 1
+        px = min(w - 1, max(0, px))
+        c = getpixel((px, py))
+        # profundidade: o lado de tras fica um pouco mais escuro
+        t = (vz - z_back) / max(1e-6, z_front - z_back)
+        shade = 0.82 + 0.18 * min(1.0, max(0.0, t))
+        colors += struct.pack(
+            "<fff", c[0] / 255.0 * shade, c[1] / 255.0 * shade, c[2] / 255.0 * shade
+        )
+    print(f"{outside} vertices fora da silhueta (colados na borda)")
 
     new_bin = bin_data + bytes(colors)
     j["buffers"][0]["byteLength"] = len(new_bin)

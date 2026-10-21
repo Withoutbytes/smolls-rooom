@@ -99,9 +99,13 @@ function count(obj) {
 
 function load(url) {
   err.textContent = '';
-  new GLTFLoader().load(
-    url,
-    (gltf) => {
+  fetch(url)
+    .then((r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.arrayBuffer();
+    })
+    .then((buf) => new GLTFLoader().parseAsync(buf))
+    .then((gltf) => {
       if (model) scene.remove(model);
       model = gltf.scene;
       model.traverse((o) => {
@@ -114,12 +118,11 @@ function load(url) {
       scene.add(model);
       const c = count(model);
       info.textContent = `${url} — ${c.verts.toLocaleString('pt-BR')} vértices, ${c.faces.toLocaleString('pt-BR')} triângulos`;
-    },
-    (e) => {
-      err.textContent = 'falha ao carregar: ' + (e && (e.message || e.name || String(e)));
+    })
+    .catch((e) => {
+      err.textContent = 'falha ao carregar: ' + (e && (e.message || String(e)));
       console.error('glb load error', e);
-    }
-  );
+    });
 }
 
 function swap(btn, url) {

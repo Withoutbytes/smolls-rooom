@@ -53,6 +53,8 @@ REAL = {
                    "He stands straight facing the camera in a relaxed A-pose, arms slightly away from the body, legs slightly apart, feet visible, wearing a plain dark gray crew-neck t-shirt, dark blue jeans and plain black sneakers. "
                    "Realistic skin texture, soft even studio lighting, face large and sharp and well lit, no objects in his hands, no shadow on the floor, whole body fully visible head to feet, centered."),
 }
+REAL['smoll_bermuda'] = (REAL['smoll_real'].replace("wearing a plain dark gray crew-neck t-shirt, dark blue jeans and plain black sneakers.",
+                         "wearing a plain dark gray crew-neck t-shirt, plain navy-blue knee-length bermuda shorts (NO jeans, NO long pants) and simple plain black flip-flop slippers (chinelo) with bare feet and bare ankles clearly visible, bare shins and calves visible."))
 REAL['visitante_real'] = ("The asset: a PHOTOREALISTIC full-body image of the man in the attached reference photo (second image: keep his face exactly recognizable: short dark swept-back hair, thick dark eyebrows, brown eyes, trimmed brown beard with a goatee, light skin). "
                           "He stands straight facing the camera in a relaxed A-pose, arms slightly away from the body, hands open with fingers slightly apart, legs slightly apart, feet visible, wearing a MODERN Brazilian Army style combat uniform: "
                           "a long-sleeve field shirt and trousers in green digital-pixel camouflage, a plain olive-green tactical vest, black combat boots, and a plain olive-green beret held at his side or none. "
@@ -62,7 +64,7 @@ REAL_REF = {'visitante_real': os.path.join(HERE, 'ref', 'visitante_foto.png')}
 # Smoll: usa a arte existente como referência de rosto e estilo
 SMOLL = ("The character is SmoLL: an adult Brazilian man in his thirties, programmer from Rondonia, thick voluminous wavy black hair swept back and up with one loose lock over the forehead, "
          "strong dark thick eyebrows, brown eyes, a full curved dark mustache joined to a neatly trimmed full dark beard with a goatee, NO glasses, medium lean build. "
-         "Match the face and art style of the attached reference image, but dressed casually: a dark gray oversized hoodie, shorts and slippers. ")
+         "Match the face and art style of the attached reference image, but dressed casually: a dark gray oversized hoodie, regular blue jeans (long pants down to the ankles) and closed black sneakers with laces (NO shorts, NO slippers, NO flip-flops, NO bare legs). ")
 SMOLL_POSES = {
     'smoll_costas': "Pose: seated on a black gamer chair, seen from BEHIND, hands up as if typing, head slightly tilted toward the screens. Show only the character and the chair.",
     'smoll_virado': "Pose: seated on a black gamer chair that has swung around to face the viewer, one arm over the backrest, a relaxed ironic half-smile, looking at the viewer. Show only the character and the chair.",

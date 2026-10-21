@@ -17,7 +17,7 @@ export function updateInteract(scene: THREE.Scene, camera: THREE.Camera) {
   if (dialog.open) { tip.style.display = 'none'; return }
   if (++tick % 3 === 0) {
     ray.setFromCamera(new THREE.Vector2(0, 0), camera)
-    const hit = ray.intersectObjects(scene.children, true).find((h) => h.object.visible)
+    const hit = ray.intersectObjects(scene.children, true).find((h) => { let v: THREE.Object3D | null = h.object; while (v && v.visible) v = v.parent; return !v })
     let o: THREE.Object3D | null = hit?.object ?? null
     target = null
     for (; o; o = o.parent) if (o.userData.act) { target = o.userData.act; break }
@@ -64,6 +64,8 @@ const tasks = (): Node => {
       { t: '☕ Faz um café', fn: ask('task:cafe', ['Café, a melhor invenção.', 'Vou passar um agora.']) },
       { t: '🍜 Cozinha alguma coisa', fn: ask('task:cozinhar', ['Miojo de novo? Tá bom.', 'Vou lá no fogão.']) },
       { t: '🧽 Lava a louça', fn: ask('task:louca', ['Eu lavo… mas depois.', 'A pilha tá virando monumento.']) },
+      { t: '🍛 Almoça de verdade (prato e talher)', fn: ask('task:almocar', ['Prato, garfo e faca. Até parece gente.', 'Almoço sentado? Que luxo.']) },
+      { t: '🛍️ Guarda a compra na geladeira', fn: ask('task:guardar', ['Vou guardar. O leite fica na frente.', 'Já vou, mas quem pagou foi você.']) },
       { t: '🍽️ Vai comer', fn: ask('task:comer', ['Tô morrendo de fome.', 'Almoço!']) },
       { t: '🎸 Toca violão', fn: ask('task:violao', ['Vou tocar a única música que eu sei.', 'Preparando o show…']) },
       { t: '🚿 Vai tomar banho', fn: ask('task:banho', ['Tô precisando mesmo.', 'Vou lá. Não olha o histórico.']) },

@@ -16,7 +16,7 @@ Room.open(door)
 // não mexe, funciona
 return smoll.sentFor(8)`
 // o que está aberto no desktop do PC (desktop.ts escreve, os monitores do pc.ts desenham). used = alguém já mexeu: antes disso os monitores ficam no modo "demo".
-export const desk = { used: false, vs: true, web: true, term: true, file: 'smoll.ts', lines: null as string[] | null, cursor: 0, col: 0, url: 'localhost:5173' }
+export const desk = { vw: 0, vh: 0, used: false, vs: true, web: true, term: true, file: 'smoll.ts', lines: null as string[] | null, cursor: 0, col: 0, url: 'localhost:5173' }
 // estado do hardware do PC do Smoll (pcgui.ts mexe, pc.ts desenha: ventoinhas, RGB, monitores desligados/BSOD)
 export const pcState = { mode: 'ok' as 'ok' | 'boot' | 'bsod' | 'off', t: 0, err: '', rgb: 'rainbow' as 'rainbow' | 'static' | 'off', hue: 0.78, fan: 0.55, fanR: 0.55, oc: false, dust: 0.35, ram: 4, cpuT: 42, gpuT: 40, load: 0.2 }
 export const codeState = {

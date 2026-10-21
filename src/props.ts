@@ -4,8 +4,8 @@ import { act } from './interact'
 import { PLACE } from './place'
 import { gifTexture } from './gifTexture'
 import { tv, openRemote } from './tv'
-import { chime, bark, strum, sizzle } from './sfx'
-import { defineItem, give as giveItem, takeItem, count as invCount, ITEMS } from './inventory'
+import { chime, bark, strum, sizzle, clink, tweet, cluck, musicPlay, musicStop, musicVol, musicTrack, TRACKS } from './sfx'
+import { defineItem, give as giveItem, takeItem, count as invCount, ITEMS, leftovers, kick, zoomCam } from './inventory'
 import { openPanel, openChest } from './menu'
 import { pcState } from './code'
 import { openPhone } from './phone'
@@ -141,6 +141,7 @@ export function buildProps(scene: THREE.Scene) {
     return g
   }
 
+  const fridgeStock: THREE.Object3D[] = [] // itens da compra na geladeira da cozinha (userData.nome = nome pra lista)
   // geladeira que abre: carcaça oca com prateleiras e itens (Kuat pegável, leite, ovos, mangas...), porta com garrafinhas e luz interna; frente pro oeste
   const fridge = (cx: number, cz: number, h: number, color: number, stock: 'cozinha' | 'velha') => {
     const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = Math.PI; scene.add(g)
@@ -159,6 +160,11 @@ export function buildProps(scene: THREE.Scene) {
     }
     const ball = (x: number, y: number, z: number, r: number, c: number) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), lm(c)); m.position.set(x, y + r, z); g.add(m); return m }
     const sy = (i: number) => shelves[i] + 0.02
+    const stuff = (x: number, y: number, z: number, id: string, label: string, build: (g: THREE.Group) => void, parent: THREE.Object3D = g) => { // item da compra: some ao pegar e só volta quando guardam a compra
+      const it = new THREE.Group(); it.position.set(x, y, z); parent.add(it); build(it)
+      act(it, label, () => { if (!giveItem(id)) return; toast(`Pegou: ${ITEMS[id].name}. 🧊`); it.visible = false })
+      it.userData.nome = ITEMS[id].name; fridgeStock.push(it); return it
+    }
     if (stock === 'cozinha') {
       box(0.5, 0.22, 0.55, 0x9bd1a0, -0.02, t, 0, g)                                      // gaveta de legumes
       kuat(-0.05, sy(0), -0.18, true); kuat(-0.05, sy(0), -0.04, true); cyl(0.04, 0.28, 0x9fd0e8, -0.05, sy(0), 0.14, g) // 2 Kuat de 2 L e água
@@ -170,6 +176,12 @@ export function buildProps(scene: THREE.Scene) {
       }
       if (shelves[2]) for (let i = 0; i < 6; i++) kuat(-0.1 + (i % 3) * 0.1, sy(2), -0.15 + Math.floor(i / 3) * 0.12)
       cyl(0.09, 0.14, 0x8a8f94, 0.12, sy(1), -0.18, g)                                    // pote de sobra
+      // compras: queijo e presunto na prateleira de cima, legumes na gaveta, congelador (carne, sorvete, gelo) numa prateleira extra; só voltam quando a compra é guardada
+      stuff(-0.05, sy(2), 0.17, 'queijo', 'Pegar o queijo', B_QUEIJO); stuff(0.08, sy(2), 0.22, 'presunto', 'Pegar o presunto', B_PRESUNTO)
+      stuff(-0.1, t + 0.22, -0.12, 'tomate', 'Pegar um tomate', B_TOMATE); stuff(0.0, t + 0.22, 0.05, 'cenoura', 'Pegar uma cenoura', B_CENOURA)
+      box(D - 0.1, 0.02, W - 0.1, 0xe8f4ff, -0.02, 1.5, 0, g)
+      stuff(-0.05, 1.52, -0.18, 'carne', 'Pegar a carne', B_CARNE); stuff(-0.05, 1.52, -0.02, 'carne', 'Pegar a carne', B_CARNE)
+      stuff(0.05, 1.52, 0.15, 'sorvete', 'Pegar o sorvete', B_SORVETE); stuff(-0.05, 1.52, 0.24, 'gelo', 'Pegar o gelo', B_GELO)
     } else {
       for (let i = 0; i < 2; i++) cyl(0.03, 0.26, 0x7a4a1e, -0.05, sy(0), -0.1 + i * 0.12, g)    // cervejas
       cyl(0.09, 0.14, 0xe0c040, 0.1, sy(0), 0.12, g)                                         // pote de pequi
@@ -179,11 +191,16 @@ export function buildProps(scene: THREE.Scene) {
     const door = new THREE.Group(); door.position.set(D / 2, 0, -W / 2); g.add(door) // dobradiça no lado sul: a porta abre pro meio da cozinha, sem bater na bancada
     const panel = box(t, h - 0.02, W, color, 0, 0.01, W / 2, door)
     box(0.03, 0.45, 0.04, 0x444444, 0.035, h * 0.45, W - 0.06, door)                     // puxador
-    for (let i = 0; i < 4; i++) cyl(0.025, 0.16, [0xc0392b, 0xf1c40f, 0x2ecc71, 0x3498db][i], -0.05, 0.6 + (i % 2) * 0.4, 0.12 + i * 0.14, door) // garrafinhas e molhos na porta
+    for (let i = 0; i < (stock === 'cozinha' ? 3 : 4); i++) cyl(0.025, 0.16, [0xc0392b, 0xf1c40f, 0x2ecc71, 0x3498db][i], -0.05, 0.6 + (i % 2) * 0.4, 0.12 + i * 0.14, door) // garrafinhas e molhos na porta
+    if (stock === 'cozinha') { // molho de tomate pegável na porta e ímã com a lista de compras (mostra o que falta na geladeira)
+      stuff(-0.05, 1.0, 0.54, 'molho-de-tomate', 'Pegar o molho de tomate', B_MOLHO, door)
+      const nota = box(0.01, 0.2, 0.14, 0xfffbe0, 0.025, 1.3, 0.35, door); box(0.014, 0.04, 0.04, 0xc0182c, 0.03, 1.42, 0.35, door)
+      act(nota, 'Ler a lista de compras', () => { const f = fridgeStock.filter((s) => !s.visible).map((s) => s.userData.nome); toast(f.length ? `Lista de compras: ${[...new Set(f)].join(', ')}.` : 'Lista de compras: tudo em dia. Milagre.', 4500) })
+    }
     let open = false
     const e = { g: door, a: 0 }; doors.push(e)
     act(panel, () => (open ? 'Fechar geladeira' : 'Abrir geladeira'), () => {
-      open = !open; e.a = open ? 1.9 : 0; lightF.intensity = open ? 1.6 : 0
+      open = !open; e.a = open ? (stock === 'cozinha' ? Math.PI : 1.9) : 0; lightF.intensity = open ? 1.6 : 0
       if (open) toast(pick(stock === 'cozinha' ? ['Kuat gelada, leite, ovos e as mangas do quintal.', 'Tem Kuat de sobra. Aproveita.', 'Gelada. Cheira a Kuat e cuscuz.'] : ['Só cerveja, pequi e uma Kuat esquecida.', 'Cheiro de fim de semana.']))
     })
   }
@@ -265,6 +282,8 @@ export function buildProps(scene: THREE.Scene) {
   const meter = box(0.05, 0.32, 0.22, 0xdddddd, 29.03, 1.4, 8.4); box(0.02, 0.1, 0.1, 0x88aacc, 29.06, 1.55, 8.4) // caixa do medidor
   // relógio de luz: o consumo vem das luzes, ventiladores e TV que estão ligados; o painel mexe no disjuntor geral
   const energy = { rooms: [] as { on: () => boolean; w: number; off: () => void }[], gato: false, kWh: 0, abajurOff: () => {} }
+  const breakerOff = new Set<string>() // disjuntores desarmados no quadro do corredor (por cômodo)
+  const bellLog: { h: number; who: string; n: number }[] = [] // quem tocou a campainha (interfone do corredor)
   const watts = () => !state.power ? 0 : Math.round((180 + energy.rooms.reduce((a, r) => a + (r.on() ? r.w : 0), 0) + fans.reduce((a, f) => a + (f.userData.on ? 70 : 0), 0) + (tv.on ? 110 : 0)) * (energy.gato ? 0.4 : 1))
   ticks.push((dt) => { energy.kWh += (watts() / 1000) * dt * (72 / 3600) }) // 1 s real = 72 s de jogo
   const killPower = () => { pcState.mode = 'off'; energy.rooms.forEach((r) => r.off()); fans.forEach((f) => (f.userData.on = false)); energy.abajurOff(); tv.setOn(false); tv.sync() }
@@ -289,7 +308,7 @@ export function buildProps(scene: THREE.Scene) {
   box(3.5, 0.08, 0.7, 0x8b6b43, 4.75, 0.85, 1.4)
   for (const lx of [3.05, 6.45]) for (const lz of [1.1, 1.7]) box(0.07, 0.85, 0.07, 0x444444, lx, 0, lz)
   box(3.4, 0.05, 0.6, 0x6e5435, 4.75, 0.3, 1.4)
-  act(box(0.5, 0.25, 0.25, 0xc0392b, 3.6, 0.93, 1.4), 'Abrir caixa de ferramentas', () => toast(pick(['Achou: 1 chave de fenda, 3 parafusos sem porca.', 'Falta a chave 10. Sempre falta.', 'Só tem fita isolante e um pacote de bolacha.'])))
+  const caixaFerr = box(0.5, 0.25, 0.25, 0xc0392b, 3.6, 0.93, 1.4) // vira baú no bloco "OFICINA VIVA"
   box(0.2, 0.2, 0.2, 0x222222, 5.4, 0.93, 1.35)   // morsa
   cyl(0.07, 0.2, 0x3a7d44, 4.4, 0.93, 1.3); cyl(0.07, 0.2, 0x2a5db0, 4.6, 0.93, 1.3) // latas de tinta
   cyl(0.07, 0.12, 0xaaaaaa, 6.0, 0.93, 1.5)
@@ -520,10 +539,49 @@ export function buildProps(scene: THREE.Scene) {
   const idCafe = defineItem('Café', (g) => { cyl(0.04, 0.07, 0xffffff, 0, 0, 0, g); cyl(0.036, 0.004, 0x3a1f10, 0, 0.07, 0, g) })
   const idAgua = defineItem('Copo de água', (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g); cyl(0.031, 0.06, 0x7ec8ff, 0, 0.01, 0, g) })
   const idQueimada = defineItem('Comida queimada', (g) => { cyl(0.07, 0.03, 0x1a1410, 0, 0, 0, g) })
-  fridge(18.55, 1.5, 1.8, 0xe6e6e6, 'cozinha')                                // geladeira que abre, com Kuat dentro
-  const stove = box(0.6, 0.9, 0.6, 0xd0d0d0, 18.6, 0, 2.5)
-  for (const [bx, bz] of [[18.45, 2.35], [18.75, 2.35], [18.45, 2.65], [18.75, 2.65]]) cyl(0.07, 0.02, 0x111111, bx, 0.9, bz)
-  block(18.2, 1.15, 18.9, 1.85, 1.8); block(18.3, 2.2, 18.9, 2.8, 0.9)        // geladeira e fogão
+  // ingredientes, comidas novas e resíduos (a geladeira e os armários usam esses modelos)
+  const ball2 = (g: THREE.Group, r: number, c: number, y = 0, sy = 1) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), lm(c)); m.position.y = y + r * sy; m.scale.y = sy; g.add(m) }
+  const B_ARROZ = (g: THREE.Group) => { box(0.09, 0.17, 0.05, 0xf4f1e8, 0, 0, 0, g); box(0.08, 0.05, 0.052, 0x2e9a3c, 0, 0.06, 0, g) }
+  const B_FEIJAO = (g: THREE.Group) => { box(0.09, 0.17, 0.05, 0x8a4a22, 0, 0, 0, g); box(0.08, 0.05, 0.052, 0xf4f1e8, 0, 0.06, 0, g) }
+  const B_MACARRAO = (g: THREE.Group) => { box(0.1, 0.2, 0.04, 0xe8c040, 0, 0, 0, g); box(0.09, 0.05, 0.042, 0xc0182c, 0, 0.08, 0, g) }
+  const B_SAL = (g: THREE.Group) => { cyl(0.035, 0.1, 0xf4f4f0, 0, 0, 0, g); cyl(0.037, 0.02, 0x2e86de, 0, 0.1, 0, g) }
+  const B_PIMENTA = (g: THREE.Group) => { cyl(0.025, 0.09, 0xc02020, 0, 0, 0, g); cyl(0.027, 0.02, 0x111111, 0, 0.09, 0, g) }
+  const B_OLEO = (g: THREE.Group) => { cyl(0.03, 0.2, 0xe8c030, 0, 0, 0, g); cyl(0.012, 0.04, 0xc0182c, 0, 0.2, 0, g) }
+  const B_CARNE = (g: THREE.Group) => { box(0.12, 0.03, 0.09, 0xf4f4f0, 0, 0, 0, g); box(0.1, 0.012, 0.07, 0xb03040, 0, 0.03, 0, g) }
+  const B_QUEIJO = (g: THREE.Group) => { box(0.1, 0.04, 0.08, 0xf4d03a, 0, 0, 0, g) }
+  const B_PRESUNTO = (g: THREE.Group) => { box(0.1, 0.018, 0.08, 0xe88a96, 0, 0, 0, g) }
+  const B_PAO = (g: THREE.Group) => { box(0.14, 0.05, 0.07, 0xc98a3a, 0, 0, 0, g); box(0.12, 0.02, 0.06, 0xdda55a, 0, 0.05, 0, g) }
+  const B_BANANA = (g: THREE.Group) => { box(0.15, 0.03, 0.035, 0xf2d030, 0, 0, 0, g); box(0.02, 0.03, 0.03, 0x5a4a1a, 0.08, 0, 0, g) }
+  const B_MACA = (g: THREE.Group) => ball2(g, 0.04, 0xc02828), B_LARANJA = (g: THREE.Group) => ball2(g, 0.045, 0xf08a20), B_TOMATE = (g: THREE.Group) => ball2(g, 0.04, 0xd0302a)
+  const B_CENOURA = (g: THREE.Group) => { cyl(0.018, 0.14, 0xf08a20, 0, 0, 0, g); cyl(0.012, 0.03, 0x3fa34d, 0, 0.14, 0, g) }
+  const B_SORVETE = (g: THREE.Group) => { cyl(0.06, 0.1, 0xf0a0c0, 0, 0, 0, g); cyl(0.062, 0.02, 0xffffff, 0, 0.1, 0, g) }
+  const B_GELO = (g: THREE.Group) => { box(0.1, 0.03, 0.08, 0xcfe8f5, 0, 0, 0, g) }
+  const B_MOLHO = (g: THREE.Group) => { cyl(0.03, 0.12, 0xc0392b, 0, 0, 0, g); cyl(0.032, 0.02, 0xf4f4f0, 0, 0.12, 0, g) }
+  const B_PANO = (g: THREE.Group) => { box(0.22, 0.01, 0.15, 0x3a6fc0, 0, 0, 0, g); box(0.22, 0.012, 0.03, 0xf4f4f0, 0, 0, 0, g) }
+  const B_CONCHA = (g: THREE.Group) => { cyl(0.008, 0.25, 0x9a9ea3, 0, 0, 0, g); cyl(0.05, 0.03, 0x9a9ea3, 0, -0.02, 0, g) }
+  const B_ESPATULA = (g: THREE.Group) => { cyl(0.008, 0.22, 0x222226, 0, 0, 0, g); box(0.07, 0.07, 0.01, 0x222226, 0, -0.06, 0, g) }
+  const idArroz = defineItem('Arroz', B_ARROZ), idFeijao = defineItem('Feijão', B_FEIJAO), idMacarrao = defineItem('Macarrão', B_MACARRAO), idSal = defineItem('Sal', B_SAL), idPimenta = defineItem('Pimenta', B_PIMENTA), idOleo = defineItem('Óleo', B_OLEO)
+  const idCarne = defineItem('Carne', B_CARNE), idQueijo = defineItem('Queijo', B_QUEIJO), idPresunto = defineItem('Presunto', B_PRESUNTO), idPao = defineItem('Pão', B_PAO), idMolho = defineItem('Molho de tomate', B_MOLHO), idPano = defineItem('Pano de prato', B_PANO)
+  defineItem('Banana', B_BANANA); defineItem('Maçã', B_MACA); defineItem('Laranja', B_LARANJA); defineItem('Tomate', B_TOMATE); defineItem('Cenoura', B_CENOURA); defineItem('Sorvete', B_SORVETE); defineItem('Gelo', B_GELO); defineItem('Concha', B_CONCHA); defineItem('Espátula', B_ESPATULA)
+  const idGarfo = defineItem('Garfo', (g) => { cyl(0.006, 0.17, 0xcccccc, 0, 0, 0, g); box(0.04, 0.05, 0.005, 0xcccccc, 0, 0.17, 0, g) })
+  const idFaca = defineItem('Faca', (g) => { cyl(0.008, 0.08, 0x222226, 0, 0, 0, g); box(0.02, 0.1, 0.004, 0xdddddd, 0, 0.08, 0, g) })
+  const idColherS = defineItem('Colher de sopa', (g) => { cyl(0.006, 0.15, 0xcccccc, 0, 0, 0, g); box(0.035, 0.04, 0.008, 0xcccccc, 0, 0.15, 0, g) })
+  const idArrozP = defineItem('Arroz soltinho', (g) => { cyl(0.07, 0.03, 0xf4f4f0, 0, 0, 0, g); cyl(0.05, 0.02, 0xfafaf2, 0, 0.03, 0, g) })
+  const idFeijaoP = defineItem('Feijão cozido', (g) => { cyl(0.07, 0.03, 0xf4f4f0, 0, 0, 0, g); cyl(0.055, 0.02, 0x5a2e14, 0, 0.03, 0, g) })
+  const idBife = defineItem('Bife', (g) => { cyl(0.07, 0.01, 0xf4f4f0, 0, 0, 0, g); box(0.1, 0.02, 0.07, 0x6a3a1e, 0, 0.01, 0, g) })
+  const idMacarronada = defineItem('Macarronada', (g) => { cyl(0.07, 0.03, 0xf4f4f0, 0, 0, 0, g); cyl(0.055, 0.02, 0xe8c060, 0, 0.03, 0, g); cyl(0.03, 0.012, 0xc0392b, 0, 0.05, 0, g) })
+  const idPaoOvo = defineItem('Pão com ovo', (g) => { box(0.12, 0.03, 0.09, 0xc98a3a, 0, 0, 0, g); cyl(0.035, 0.01, 0xf8f4e8, 0, 0.03, 0, g); cyl(0.014, 0.014, 0xf0b020, 0, 0.04, 0, g) })
+  const idSanduiche = defineItem('Sanduíche', (g) => { box(0.12, 0.02, 0.09, 0xc98a3a, 0, 0, 0, g); box(0.11, 0.015, 0.08, 0xf4d03a, 0, 0.02, 0, g); box(0.11, 0.012, 0.08, 0xe88a96, 0, 0.035, 0, g); box(0.12, 0.02, 0.09, 0xdda55a, 0, 0.047, 0, g) })
+  const idVitamina = defineItem('Vitamina de manga', (g) => { cyl(0.04, 0.1, 0xf5c542, 0, 0, 0, g); cyl(0.004, 0.06, 0xc0182c, 0.01, 0.06, 0, g) })
+  const idCascaOvo = defineItem('Casca de ovo', (g) => { cyl(0.025, 0.02, 0xf4efe0, 0, 0, 0, g) }), idEmbMiojo = defineItem('Embalagem de miojo', (g) => { box(0.12, 0.004, 0.09, 0xe0a020, 0, 0, 0, g) })
+  const idEmbMac = defineItem('Embalagem de macarrão', (g) => { box(0.1, 0.004, 0.2, 0xe8c040, 0, 0, 0, g) }), idCascaBanana = defineItem('Casca de banana', (g) => { box(0.14, 0.01, 0.05, 0xd8b830, 0, 0, 0, g) })
+  const idMiolo = defineItem('Miolo de maçã', (g) => { cyl(0.012, 0.05, 0xd8c88a, 0, 0, 0, g) }), idCascaLaranja = defineItem('Casca de laranja', (g) => { box(0.08, 0.008, 0.08, 0xf08a20, 0, 0, 0, g) })
+  leftovers.banana = idCascaBanana; leftovers.maca = idMiolo; leftovers.laranja = idCascaLaranja
+  const TRASH = [idQueimada, idCascaOvo, idEmbMiojo, idEmbMac, idCascaBanana, idMiolo, idCascaLaranja]
+  fridge(18.55, 1.5, 1.8, 0xe6e6e6, 'cozinha')                             // geladeira que abre, com Kuat dentro
+  const stove = box(0.6, 0.9, 0.6, 0xd0d0d0, 17.9, 0, 5.65)                       // fogão na parede sul (do outro lado da cozinha)
+  for (const [bx, bz] of [[17.75, 5.55], [18.05, 5.55], [17.75, 5.78], [18.05, 5.78]]) cyl(0.07, 0.02, 0x111111, bx, 0.9, bz)
+  block(18.2, 1.15, 18.9, 1.85, 1.8); block(17.6, 5.35, 18.2, 5.95, 0.9)        // geladeira e fogão
   cabinet(14.85, 0, 1.3, 1.4, 0.9, 0.6, 1, 0xa0522d, ['Café, açúcar e bolacha maizena.', 'Panelas. Muitas panelas.', 'Um pote de farinha e saudade.'])
   cabinet(14.85, 1.5, 1.15, 1.4, 0.7, 0.3, 1, 0xa0522d, ['Copos, só copos.', 'Achou uma garrafa térmica esquecida.'])
   const mesaTop = cyl(0.6, 0.06, 0x8b6b43, 16.5, 0.72, 3.8); cyl(0.07, 0.72, 0x444444, 16.5, 0, 3.8)
@@ -546,16 +604,100 @@ export function buildProps(scene: THREE.Scene) {
   thing(15.02, SHU, 1.26, 'Pegar o flocão de milho', ['Flocão de milho. Cuscuz de domingo.', 'Flocão: com ovo vira café da manhã de campeão.'], (g) => { box(0.1, 0.16, 0.05, 0xf0c020, 0, 0, 0, g) }, false)
   thing(15.32, SHU, 1.26, 'Pegar um copo', ['Copo americano, o melhor copo.', 'Copo de requeijão. Todo brasileiro tem.'], (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g) }, false)
 
+  // compartimento de baixo do armário aéreo: arroz, feijão, macarrão e temperos (sal, óleo e pimenta não gastam: ficam na mochila)
+  const SHM = 1.53
+  thing(14.4, SHM, 1.26, 'Pegar o arroz', ['Arroz agulhinha. Base de toda refeição séria.', 'Pacote de 5 kg que dura um mês.'], B_ARROZ, false)
+  thing(14.72, SHM, 1.26, 'Pegar o feijão', ['Feijão carioca. Sem ele não é almoço.', 'Feijão de molho desde ontem. Ótimo.'], B_FEIJAO, false)
+  thing(15.02, SHM, 1.26, 'Pegar o macarrão', ['Espaguete. Dobra no meio, porque a panela é pequena.', 'Macarrão: a segunda dieta do dev.'], B_MACARRAO, false)
+  thing(15.32, SHM, 1.26, 'Pegar o sal', ['Sal grosso. Pitada de cozinheiro é a mão toda.', 'Sal. Serve pra tudo, até pra superstição.'], B_SAL, false)
+  thing(14.4, SHM, 1.1, 'Pegar o óleo', ['Óleo de soja. Pra fritar e pra lubrificar a dobradiça.', 'Garrafa de óleo quase no fim.'], B_OLEO, false)
+  thing(14.72, SHM, 1.1, 'Pegar a pimenta', ['Pimenta-do-reino moída. Espirra garantido.', 'Pimenta. Pouca, que o Smoll não aguenta.'], B_PIMENTA, false)
+
+  // suporte de utensílios na parede norte (acima da bancada): concha, espátula e o pano de prato
+  box(1.5, 0.025, 0.03, 0x888888, 16.5, 1.52, 1.04)
+  thing(15.85, 1.26, 1.07, 'Pegar a concha', ['Concha de feijão. Também serve de colher de sopa gigante.', 'Concha pendurada no ganchinho.'], B_CONCHA, false)
+  thing(16.35, 1.28, 1.07, 'Pegar a espátula', ['Espátula antiaderente. A frigideira agradece.', 'Espátula de silicone, já meio derretida.'], B_ESPATULA, false)
+  thing(17.05, 1.26, 1.07, 'Pegar o pano de prato', ['Pano de prato úmido. Serve pra tudo, menos pra pratos.', 'Pano de prato xadrez. A mãe do Smoll mandou.'], (g) => { const h = new THREE.Group(); B_PANO(h); h.rotation.x = Math.PI / 2; h.position.y = 0.15; g.add(h) }, false)
+  // gaveta de talheres na frente da bancada: abre uma lista, dá pra guardar de volta com o item na mão
+  const talheres = [{ id: idGarfo, n: 4 }, { id: idFaca, n: 4 }, { id: idColherS, n: 4 }]
+  const gaveta = box(0.5, 0.12, 0.02, 0xd9d0bc, 17.1, 0.62, 1.61); box(0.14, 0.02, 0.03, 0x888888, 17.1, 0.7, 1.63)
+  act(gaveta, 'Abrir a gaveta de talheres', () => { clink(); openChest('🍴 Gaveta de talheres', talheres) }, (id) => {
+    const s = talheres.find((x) => x.id === id); if (!s) { toast('Na gaveta só vão talheres.'); return true }
+    s.n++; clink(); toast('Guardou na gaveta.'); return 'consume'
+  })
+
+  // bancada leste (entre a geladeira e o fogão): porta-copos, fruteira, cesta de pão, tábua, liquidificador e forninho elétrico
+  box(0.6, 0.86, 3.2, 0xe9e4d8, 18.7, 0, 4.35); box(0.62, 0.04, 3.22, 0x6b6b6b, 18.7, 0.86, 4.35); block(18.4, 2.75, 19, 5.95, 0.9)
+  cyl(0.07, 0.01, 0x888888, 18.7, 0.9, 3.0); cyl(0.01, 0.2, 0x888888, 18.7, 0.9, 3.0)                       // porta-copos
+  for (const [cx, cz] of [[18.58, 2.92], [18.82, 2.92], [18.7, 3.12]]) thing(cx, 0.9, cz, 'Pegar um copo', ['Copo americano do porta-copos.', 'Copo limpo. Raridade.'], (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g) }, false)
+  cyl(0.17, 0.05, 0x7a4a2a, 18.7, 0.9, 3.55)                                                                 // fruteira
+  thing(18.64, 0.95, 3.5, 'Pegar uma banana', ['Banana madura. Cuidado com a casca no chão.', 'Banana prata. A melhor.'], B_BANANA, false)
+  thing(18.78, 0.95, 3.5, 'Pegar uma maçã', ['Maçã vermelha. Uma por dia afasta o médico.', 'Maçã argentina. Importada, chique.'], B_MACA, false)
+  thing(18.7, 0.95, 3.63, 'Pegar uma laranja', ['Laranja-pera. Suculenta.', 'Laranja doce. Vira suco fácil.'], B_LARANJA, false)
+  thing(18.64, 0.95, 3.63, 'Pegar uma manga', ['Manga do quintal. Sem fio, com sorte.', 'Manga rosa madurinha.'], (g) => ball2(g, 0.05, 0xf0a020, 0, 1), false)
+  box(0.34, 0.12, 0.3, 0xb98a4e, 18.7, 0.9, 4.0); box(0.3, 0.02, 0.26, 0xe8dcc0, 18.7, 1.02, 4.0)           // cesta de pão
+  thing(18.7, 1.04, 4.0, 'Pegar um pão', ['Pão francês de ontem. Crocante, tipo bolacha.', 'Pãozinho quentinho. Mentira, é de ontem.'], B_PAO, false)
+  const tabua = box(0.32, 0.025, 0.28, 0xc9a56a, 18.7, 0.9, 4.45)                                           // tábua de corte: monta sanduíche
+  const liquid = cyl(0.07, 0.04, 0x222222, 18.7, 0.9, 4.85); cyl(0.065, 0.24, 0xcfe8f5, 18.7, 0.94, 4.85); cyl(0.07, 0.02, 0x222222, 18.7, 1.18, 4.85) // liquidificador
+  const forno = box(0.4, 0.26, 0.5, 0x2a2a2e, 18.68, 0.9, 5.45); box(0.01, 0.16, 0.38, 0x8a9aa8, 18.47, 0.95, 5.45); for (let i = 0; i < 2; i++) cyl(0.02, 0.02, 0xaaaaaa, 18.47, 1.0 + i * 0.07, 5.74).rotation.z = Math.PI / 2 // forninho elétrico
+  act(forno, 'Usar o forninho elétrico', () => toast(pick(['Forninho a 200°. Cheiro de pão na casa toda.', 'Forninho: o micro-ondas dos chiques.'])), (id, kind) => {
+    if (kind === 'food') { toast(`Esquentou ${ITEMS[id].name} no forninho. Ficou crocante. 🔥`); return true }
+    toast('Isso não vai no forninho.'); return true
+  })
+  // relógio de parede (hora do jogo)
+  const clockCv = document.createElement('canvas'); clockCv.width = clockCv.height = 128
+  const clockTex = new THREE.CanvasTexture(clockCv); clockTex.colorSpace = THREE.SRGBColorSpace
+  let clockT = 0
+  const drawClock = () => {
+    const g = clockCv.getContext('2d')!, h = gameHour(), hh = Math.floor(h), mm = Math.floor((h % 1) * 60)
+    g.fillStyle = '#f4f4f0'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill(); g.lineWidth = 6; g.strokeStyle = '#222'; g.stroke()
+    g.lineCap = 'round'; g.strokeStyle = '#222'
+    for (const [len, w, a] of [[34, 6, ((hh % 12) + mm / 60) / 12], [50, 4, mm / 60]]) { g.lineWidth = w; g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + Math.sin(a * 6.2832) * len, 64 - Math.cos(a * 6.2832) * len); g.stroke() }
+    clockTex.needsUpdate = true
+  }
+  drawClock()
+  ticks.push((dt) => { if ((clockT += dt) > 5) { clockT = 0; drawClock() } })
+  const relogio = wallPlane(0.32, 0.32, clockTex, 18.97, 1.95, 4.2, -Math.PI / 2)
+  act(relogio, 'Ver as horas', () => { const h = gameHour(); toast(`São ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}. O relógio da cozinha adianta 5 min, jura.`) })
+  // lixeira (canto sudoeste): casca, embalagem e comida queimada de verdade; a tampa abre quando joga
+  let lixo = 0, lidT = 0
+  const lixeira = cyl(0.15, 0.5, 0x5a6068, 14.45, 0, 5.6)
+  const tampa = new THREE.Group(); tampa.position.set(14.45, 0.5, 5.76); scene.add(tampa); cyl(0.16, 0.025, 0x3a3f45, 0, 0, -0.16, tampa)
+  ticks.push((dt) => { lidT = Math.max(0, lidT - dt); tampa.rotation.x = lidT > 0 ? 0.9 : 0 })
+  for (const o of [lixeira, tampa]) act(o, () => (lixo ? `Esvaziar a lixeira (${lixo} itens)` : 'Lixeira vazia'), () => { if (lixo) { lixo = 0; lidT = 1; toast('Levou o lixo pra fora. Lixeira vazia. 🗑️') } else toast('Nada pra jogar fora. Tá vazia.') }, (id, kind) => {
+    if (lixo >= 8) { toast('Lixeira cheia! Esvazia ela primeiro (E).'); return true }
+    if (TRASH.includes(id) || kind === 'food' || kind === 'drink') { lixo++; lidT = 1; clink(0.05); toast(`Jogou ${ITEMS[id].name} no lixo. 🗑️`); return 'consume' }
+    toast('Isso não é lixo.'); return true
+  })
+  block(14.28, 5.43, 14.62, 5.77, 0.5)
+  // sacola de compras: aparece na mesa quando falta coisa na geladeira (alguém pegou); guardar repõe tudo
+  const compra = new THREE.Group(); compra.position.set(16.62, 0.78, 3.62); compra.visible = false; scene.add(compra)
+  box(0.16, 0.2, 0.1, 0xe8d8b0, 0, 0, 0, compra); box(0.1, 0.03, 0.11, 0x2e9a3c, 0, 0.2, 0, compra)
+  let shopT = 0
+  const guardar = () => { const n = fridgeStock.filter((s) => !s.visible).length; fridgeStock.forEach((s) => (s.visible = true)); compra.visible = false; shopT = 0; return n }
+  act(compra, 'Guardar a compra na geladeira', () => { guardar(); clink(); toast('Guardou a compra: tudo de volta na geladeira. 🧊') })
+  ticks.push((dt) => { if (!compra.visible && fridgeStock.some((s) => !s.visible)) { if ((shopT += dt) > 45) compra.visible = true } else if (!compra.visible) shopT = 0 })
+  world.cozinha.guardar = () => toast(guardar() ? 'Smoll guardou a compra na geladeira. 🧊' : 'Smoll abriu a geladeira, nada pra guardar. Fechou de novo.')
+  // almoço do Smoll: prato com arroz, feijão e bife + garfo e faca na mesa; depois sobra louça suja
+  const lunch = new THREE.Group(); lunch.position.set(16.5, 0.795, 3.42); lunch.visible = false; scene.add(lunch)
+  plateB(lunch); cyl(0.04, 0.02, 0xfafaf2, -0.03, 0.015, 0, lunch); cyl(0.035, 0.02, 0x5a2e14, 0.03, 0.015, 0.03, lunch); box(0.07, 0.015, 0.045, 0x6a3a1e, 0.0, 0.015, -0.04, lunch)
+  box(0.012, 0.004, 0.16, 0xcccccc, 0.17, 0, 0, lunch); box(0.012, 0.004, 0.16, 0xdddddd, -0.17, 0, 0, lunch)
+  world.cozinha.almocar = () => {
+    lunch.visible = true; if (clean) { clean--; syncDishes() }
+    setTimeout(() => { lunch.visible = false; dirty = Math.min(6, dirty + 1); syncDishes(); clink(0.1); toast('Smoll almoçou e deixou prato, garfo e faca sujos. 🍛') }, 11000)
+  }
+
   // bancada ao longo da parede norte: filtro, cafeteira, pia (com a louça suja), escorredor e micro-ondas
   // móvel em três partes e tampo com um buraco: a cuba (x 16,3–16,8) é funda, de aço, com ralo
-  box(0.7, 0.86, 0.6, 0xe9e4d8, 15.95, 0, 1.3); box(1.35, 0.86, 0.6, 0xe9e4d8, 17.475, 0, 1.3); box(0.5, 0.62, 0.6, 0xe9e4d8, 16.55, 0, 1.3)
-  for (const [w, d, x, z] of [[0.71, 0.62, 15.955, 1.3], [1.36, 0.62, 17.475, 1.3], [0.5, 0.13, 16.55, 1.545], [0.5, 0.12, 16.55, 1.06]]) box(w, 0.04, d, 0x6b6b6b, x, 0.86, z) // tampo ao redor do buraco
-  block(15.6, 1.0, 18.15, 1.6, 0.9)
+  box(0.7, 0.86, 0.6, 0xe9e4d8, 15.95, 0, 1.3); box(0.6, 0.86, 0.6, 0xe9e4d8, 17.1, 0, 1.3); box(0.5, 0.62, 0.6, 0xe9e4d8, 16.55, 0, 1.3)
+  for (const [w, d, x, z] of [[0.71, 0.62, 15.955, 1.3], [0.62, 0.62, 17.11, 1.3], [0.5, 0.13, 16.55, 1.545], [0.5, 0.12, 16.55, 1.06]]) box(w, 0.04, d, 0x6b6b6b, x, 0.86, z) // tampo ao redor do buraco
+  block(15.6, 1.0, 17.4, 1.6, 0.9)
   box(0.5, 0.02, 0.36, 0x9aa7ad, 16.55, 0.62, 1.3); cyl(0.025, 0.005, 0x222222, 16.55, 0.64, 1.3)           // fundo da cuba e ralo
   box(0.012, 0.28, 0.36, 0x9aa7ad, 16.304, 0.62, 1.3); box(0.012, 0.28, 0.36, 0x9aa7ad, 16.796, 0.62, 1.3); box(0.5, 0.28, 0.012, 0x9aa7ad, 16.55, 0.62, 1.474); box(0.5, 0.28, 0.012, 0x9aa7ad, 16.55, 0.62, 1.126) // paredes da cuba
   box(0.03, 0.25, 0.03, 0x999999, 16.55, 0.9, 1.08); box(0.03, 0.02, 0.2, 0x999999, 16.55, 1.13, 1.18)  // torneira (no tampo de trás)
   const sinkFlow = cyl(0.007, 0.43, 0x7ec8ff, 16.55, 0.7, 1.27); sinkFlow.visible = false
   let dirty = 5, clean = 0, washing = 0
+  const dirtyTool = new Set<string>() // panela/frigideira sujas depois de cozinhar (lava na pia com a peça na mão)
   const dirtyPlates = Array.from({ length: 6 }, (_, i) => { const m = cyl(0.1, 0.014, i % 2 ? 0xd8cfb0 : 0xcdbf9c, 16.55 + ((i * 37) % 7 - 3) * 0.012, 0.65 + i * 0.016, 1.3 + ((i * 53) % 5 - 2) * 0.012); return m })
   const rack = new THREE.Group(); rack.position.set(17.05, 0.9, 1.3); scene.add(rack)
   box(0.3, 0.015, 0.2, 0x888888, 0, 0, 0, rack)
@@ -569,7 +711,10 @@ export function buildProps(scene: THREE.Scene) {
   ticks.push((dt) => { if (washing > 0 && (washing -= dt) <= 0) { sinkFlow.visible = false; clean = Math.min(6, clean + dirty); dirty = 0; syncDishes(); toast('Louça lavada! Ficou brilhando. ✨') } })
   const sinkHit = box(0.55, 0.3, 0.4, 0xffffff, 16.55, 0.9, 1.3); (sinkHit.material as THREE.MeshLambertMaterial).transparent = true; (sinkHit.material as THREE.MeshLambertMaterial).opacity = 0; (sinkHit.material as THREE.MeshLambertMaterial).depthWrite = false
   act(sinkHit, () => (dirty ? `Lavar a louça (${dirty} peças sujas)` : 'Pia limpa'), wash, (id) => {
-    if (['prato', 'copo', 'panela', 'frigideira', 'colher-de-pau'].includes(id)) { toast(`${ITEMS[id].name} lavado(a). Brilhando. ✨`); return true }
+    if (id === idPanela || id === idFrig) { toast(dirtyTool.delete(id) ? `${ITEMS[id].name} lavada. Brilhando. ✨` : `${ITEMS[id].name} já tava limpa.`); clink(); return true }
+    if (id === idPrato) { if (dirty) { dirty--; clean = Math.min(6, clean + 1); syncDishes(); clink(); toast('Lavou um prato da pilha e foi pro escorredor. 🧽') } else toast('Não tem prato sujo na pia.'); return true }
+    if (id === idPano) { toast('Molhou o pano de prato. Agora tá úmido.'); return true }
+    if ([idCopo, idColher, idGarfo, idFaca, idColherS].includes(id)) { clink(); toast(`${ITEMS[id].name} lavado(a). Brilhando. ✨`); return true }
     toast('Isso não é pra lavar.'); return true
   })
   act(rack, () => (clean ? `Pegar um prato limpo (${clean})` : 'Escorredor vazio'), () => { if (clean && giveItem(idPrato)) { clean--; syncDishes(); toast('Pegou um prato limpo. 🍽️') } else toast('Não tem prato limpo. Lava a louça!') })
@@ -594,40 +739,74 @@ export function buildProps(scene: THREE.Scene) {
     if (takeItem(idPo)) startBrew(); else toast('Sem pó de café. Procura no armário de cima.')
   })
   // micro-ondas: esquenta comida e bebida
-  const micro = box(0.5, 0.3, 0.36, 0xdadada, 17.7, 0.9, 1.3); box(0.3, 0.2, 0.01, 0x15151a, 17.62, 0.95, 1.485); for (let i = 0; i < 3; i++) box(0.03, 0.03, 0.01, 0x888888, 17.84, 1.0 + i * 0.05, 1.485)
+  const micro = box(0.5, 0.3, 0.36, 0xdadada, 14.85, 0.9, 1.3); box(0.3, 0.2, 0.01, 0x15151a, 14.77, 0.95, 1.485); for (let i = 0; i < 3; i++) box(0.03, 0.03, 0.01, 0x888888, 15.0, 1.0 + i * 0.05, 1.485)
   act(micro, 'Usar o micro-ondas', () => toast(pick(['Micro-ondas: 1:00, apitou 3 vezes e ninguém foi tirar.', 'Esquentou o ar. Eficiência zero.'])), (id, kind) => {
     if (kind === 'food' || kind === 'drink') { toast(`Esquentou ${ITEMS[id].name} por 1 min. Tá pelando. 🔥`); return true }
     toast(id === idPrato || id === idCopo ? 'Prato vazio no micro-ondas? Pra quê?' : 'Metal e eletrônicos no micro-ondas dão faísca. Melhor não.'); return true
   })
-  // fogão: 4 bocas com chama, receitas com o que você carrega (ovo, miojo, flocão, pó de café + panela ou frigideira)
-  const flames = [[18.45, 2.35], [18.75, 2.35], [18.45, 2.65], [18.75, 2.65]].map(([fx, fz]) => { const f = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.1, 8), bm(0xff8a20)); f.position.set(fx, 0.97, fz); f.visible = false; scene.add(f); return f })
+  // fogão: panela e frigideira ficam nas bocas (E pega, clique com a peça na mão devolve); a comida pronta fica dentro e é só servir
+  const flames = [[17.75, 5.55], [18.05, 5.55], [17.75, 5.78], [18.05, 5.78]].map(([fx, fz]) => { const f = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.1, 8), bm(0xff8a20)); f.position.set(fx, 0.93, fz); f.visible = false; scene.add(f); return f })
   let cooking = 0, ft = 0
   ticks.push((dt) => { if (cooking > 0) { cooking -= dt; ft += dt; flames.forEach((f, i) => { f.visible = true; f.scale.y = 0.8 + Math.sin(ft * 20 + i) * 0.3 }) } else flames.forEach((f) => (f.visible = false)) })
-  const RECIPES = [
-    { name: '🍳 Ovo frito', need: [idOvo], tool: idFrig, out: idOvoFrito, msg: 'Ovo frito perfeito. A gema ficou mole.' },
-    { name: '🍜 Miojo', need: [idMiojo], tool: idPanela, out: idMiojoPronto, msg: 'Miojo pronto. Só que de verdade, em 3 minutos.' },
-    { name: '🌽 Cuscuz com ovo', need: [idFlocao, idOvo], tool: idPanela, out: idCuscuz, msg: 'Cuscuz com ovo. Café da manhã de campeão.' },
-    { name: '☕ Café na panela', need: [idPo], tool: idPanela, out: idCafe, msg: 'Café coado na panela. O cheiro invade a casa.' },
+  type Pan = { g: THREE.Group; on: boolean; ready: string; food: THREE.Mesh }
+  const pans: Record<string, Pan> = {}
+  const mkPan = (id: string, x: number, z: number, rot: number, nome: string, top: number) => {
+    const g = new THREE.Group(); g.position.set(x, 0.92, z); g.rotation.y = rot; scene.add(g); ITEMS[id].build!(g)
+    const p: Pan = { g, on: true, ready: '', food: cyl(0.075, 0.02, 0xf2d06a, 0, top, 0, g) }; p.food.visible = false; pans[id] = p
+    act(g, () => (p.ready ? `Servir ${ITEMS[p.ready].name}` : `Pegar ${nome}${dirtyTool.has(id) ? ' (suja)' : ''}`), () => {
+      if (p.ready) { if (giveItem(p.ready)) { toast(`Serviu ${ITEMS[p.ready].name}. 🍽️`); p.ready = ''; p.food.visible = false } return }
+      if (cooking > 0) { toast('Tá fervendo! Espera acabar de cozinhar.'); return }
+      if (giveItem(id)) { p.on = false; g.visible = false; clink(); toast(`Pegou ${nome}${dirtyTool.has(id) ? '. Tá suja, hein.' : '.'} Clica no fogão com ela na mão pra devolver.`) }
+    })
+  }
+  mkPan(idPanela, 17.75, 5.55, Math.PI, 'a panela', 0.1); mkPan(idFrig, 18.05, 5.55, 0, 'a frigideira', 0.03)
+  type Recipe = { name: string; need: string[]; cond?: string[]; tool?: string; out: string; msg: string; col: number; trash?: string[] } // cond = temperos (não gastam); sem tool = bancada
+  const RECIPES: Recipe[] = [
+    { name: '🍳 Ovo frito', need: [idOvo], tool: idFrig, out: idOvoFrito, msg: 'Ovo frito perfeito. A gema ficou mole.', col: 0xf8f4e8, trash: [idCascaOvo] },
+    { name: '🍜 Miojo', need: [idMiojo], tool: idPanela, out: idMiojoPronto, msg: 'Miojo pronto. Só que de verdade, em 3 minutos.', col: 0xe8c060, trash: [idEmbMiojo] },
+    { name: '🌽 Cuscuz com ovo', need: [idFlocao, idOvo], tool: idPanela, out: idCuscuz, msg: 'Cuscuz com ovo. Café da manhã de campeão.', col: 0xf2d06a, trash: [idCascaOvo] },
+    { name: '☕ Café na panela', need: [idPo], tool: idPanela, out: idCafe, msg: 'Café coado na panela. O cheiro invade a casa.', col: 0x3a1f10 },
+    { name: '🍚 Arroz', need: [idArroz], cond: [idSal, idOleo], tool: idPanela, out: idArrozP, msg: 'Arroz soltinho, cada grão no seu lugar.', col: 0xfafaf2 },
+    { name: '🫘 Feijão', need: [idFeijao], cond: [idSal], tool: idPanela, out: idFeijaoP, msg: 'Feijão cozido com caldo grosso. Cheiro de domingo.', col: 0x5a2e14 },
+    { name: '🥩 Bife', need: [idCarne], cond: [idSal, idPimenta], tool: idFrig, out: idBife, msg: 'Bife no ponto. Chiou bonito.', col: 0x6a3a1e },
+    { name: '🍝 Macarronada', need: [idMacarrao, idMolho], cond: [idSal], tool: idPanela, out: idMacarronada, msg: 'Macarronada com molho. Faltou só o queijo ralado.', col: 0xe8c060, trash: [idEmbMac] },
+    { name: '🥪 Pão com ovo', need: [idPao, idOvo], tool: idFrig, out: idPaoOvo, msg: 'Pão com ovo na frigideira. Clássico de madrugada.', col: 0xc98a3a, trash: [idCascaOvo] },
   ]
-  const missing = (r: (typeof RECIPES)[number]) => [r.tool, ...r.need].filter((id) => !invCount(id)).map((id) => ITEMS[id].name)
-  const cook = (r: (typeof RECIPES)[number]) => {
-    if (cooking > 0) { toast('O fogão já tá ocupado.'); return }
+  const SANDUBA: Recipe = { name: 'Sanduíche', need: [idPao, idQueijo, idPresunto], out: idSanduiche, msg: 'Sanduíche de queijo e presunto montado. Caprichou.', col: 0 }
+  const VITAMINA: Recipe = { name: 'Vitamina de manga', need: ['manga', idLeite], out: idVitamina, msg: 'Vitamina de manga batida no liquidificador. Barulho infernal, resultado ótimo.', col: 0 }
+  const hasTool = (id?: string) => !id || pans[id].on || invCount(id) > 0
+  const missing = (r: Recipe) => [...(hasTool(r.tool) ? [] : [r.tool!]), ...[...r.need, ...(r.cond ?? [])].filter((id) => !invCount(id))].map((id) => ITEMS[id].name)
+  const cook = (r: Recipe) => {
+    const p = r.tool ? pans[r.tool] : null
+    if (p && cooking > 0) { toast('O fogão já tá ocupado.'); return }
+    if (p?.ready) { toast(`Serve ${ITEMS[p.ready].name} que tá na ${ITEMS[r.tool!].name.toLowerCase()} primeiro.`); return }
     const m = missing(r); if (m.length) { toast(`Faltando: ${m.join(', ')}`); return }
-    r.need.forEach((id) => takeItem(id)); cooking = 4; sizzle(0.1, 4); toast(`Cozinhando ${r.name}… 🔥`)
+    r.need.forEach((id) => takeItem(id)); r.trash?.forEach((id) => giveItem(id))
+    if (!p) { if (giveItem(r.out)) { clink(); toast(r.msg) } return }
+    if (!p.on) { takeItem(r.tool!); p.on = true; p.g.visible = true }
+    cooking = 4; sizzle(0.1, 4); toast(`Cozinhando ${r.name}… 🔥`); p.food.visible = true; (p.food.material as THREE.MeshLambertMaterial).color.set(r.col)
     setTimeout(() => {
-      const burnt = Math.random() < 0.15; dirty = Math.min(6, dirty + 1); syncDishes()
-      if (burnt) { giveItem(idQueimada); toast('Queimou! Fumaça pra tudo que é lado. Smoll: "NÃO É MEU!" 🔥') } else { giveItem(r.out); toast(r.msg) }
+      const burnt = Math.random() < 0.15; dirty = Math.min(6, dirty + 1); syncDishes(); dirtyTool.add(r.tool!)
+      if (burnt) { p.ready = idQueimada; (p.food.material as THREE.MeshLambertMaterial).color.set(0x1a1410); toast('Queimou! Fumaça pra tudo que é lado. Smoll: "NÃO É MEU!" 🔥') } else { p.ready = r.out; toast(`${r.msg} (E na panela pra servir)`) }
     }, 4000)
   }
-  act(stove, 'Usar o fogão', () => openPanel('🍳 Fogão', () => RECIPES.map((r) => `${missing(r).length ? '❌' : '✅'} <b>${r.name}</b> — ${[r.tool, ...r.need].map((id) => `${invCount(id) ? '' : '<s>'}${ITEMS[id].name}${invCount(id) ? '' : '</s>'}`).join(' + ')}`).join('<br>') + '<br><br><i>Panela e frigideira não gastam. Ingredientes estão na geladeira e no armário de cima.</i>',
-    RECIPES.map((r) => ({ t: r.name, fn: () => cook(r) }))))
-  world.cozinha.cozinhar = () => { cooking = 4; sizzle(0.1, 4); dirty = Math.min(6, dirty + 1); syncDishes(); toast('Smoll botou um miojo no fogo e já tá fuçando no celular. 🍜') }
+  const nomes = (r: Recipe) => [...(r.tool ? [r.tool] : []), ...r.need, ...(r.cond ?? [])].map((id) => `${invCount(id) || pans[id]?.on ? '' : '<s>'}${ITEMS[id].name}${invCount(id) || pans[id]?.on ? '' : '</s>'}`).join(' + ')
+  act(stove, 'Usar o fogão', () => openPanel('🍳 Fogão', () => RECIPES.map((r) => `${missing(r).length ? '❌' : '✅'} <b>${r.name}</b> — ${nomes(r)}`).join('<br>') + '<br><br><i>Panela e frigideira ficam no fogão e não gastam; sal, óleo e pimenta também não. A comida pronta fica na panela: E nela pra servir.</i>',
+    RECIPES.map((r) => ({ t: r.name, fn: () => cook(r) }))), (id) => { // devolver panela/frigideira
+    const p = pans[id]; if (!p) return
+    if (p.on) { toast('Já tem uma dessas no fogão.'); return true }
+    p.on = true; p.g.visible = true; clink(); toast(`${ITEMS[id].name} de volta no fogão.`); return 'consume'
+  })
+  act(tabua, () => `Montar sanduíche (${nomes(SANDUBA)})`, () => cook(SANDUBA))
+  act(liquid, () => `Bater vitamina de manga (${nomes(VITAMINA)})`, () => cook(VITAMINA))
+  world.cozinha.cozinhar = () => { cooking = 4; sizzle(0.1, 4); dirty = Math.min(6, dirty + 1); dirtyTool.add(idPanela); syncDishes(); toast('Smoll botou um miojo no fogo e já tá fuçando no celular. 🍜') }
   world.cozinha.louca = () => wash()
   world.cozinha.cafe = () => { if (!brew && !coffeeReady) { startBrew() } setTimeout(() => { toast('Smoll tomou o café inteiro. ☕'); coffeeReady = false; potFill.scale.y = 1; (led.material as THREE.MeshBasicMaterial).color.set(0xc02020) }, 7000) }
   // mesa posta: pratos e copos pegáveis; comer na mesa
   for (const [px, pz] of [[16.12, 3.8], [16.88, 3.8], [16.5, 3.42], [16.5, 4.18]]) thing(px, 0.78, pz, 'Pegar o prato', ['Prato da mesa. Ainda tem farelo da janta.', 'Prato quase limpo. Quase.'], plateB, false)
   for (const [px, pz] of [[16.3, 3.55], [16.78, 4.05]]) thing(px, 0.78, pz, 'Pegar o copo', ['Copo da mesa, cheio de Kuat velha.', 'Copo americano. Todo mundo tem.'], (g) => { cyl(0.035, 0.09, 0xcfe8f5, 0, 0, 0, g) }, false)
   act(mesaTop, 'Sentar e comer na mesa', () => toast('Mesa redonda com 4 cadeiras. O Smoll nunca teve visita pra ocupar.'), (id, kind) => {
+    if (id === idPano) { toast('Passou o pano na mesa. Cheirinho de limpeza. 🧼'); return true }
     if (kind === 'food') { toast(`Comeu ${ITEMS[id].name} na mesa, sentado e tudo. Que luxo. 🍽️`); return 'consume' }
     if (kind === 'drink') { toast(`Bebeu ${ITEMS[id].name} na mesa. Saúde!`); return 'consume' }
     toast('Isso não se come.'); return true
@@ -689,13 +868,12 @@ export function buildProps(scene: THREE.Scene) {
     swing.push({ pivot, phase: i * 1.7 })
   })
   // tanque de lavar roupa + torneira (junto do muro leste)
-  act(box(0.6, 0.85, 0.9, 0xbfc4c8, 27.45, 0, 15.2), 'Abrir a torneira', () => toast('Água quente. É Rondônia, mano.')); box(0.4, 0.05, 0.7, 0x4a5a63, 27.45, 0.8, 15.2)
+  const tanque = box(0.6, 0.85, 0.9, 0xbfc4c8, 27.45, 0, 15.2); box(0.4, 0.05, 0.7, 0x4a5a63, 27.45, 0.8, 15.2) // tanque: lava roupa no bloco "QUINTAL VIVO"
   cyl(0.02, 0.3, 0xcccccc, 27.2, 1.0, 15.2)
   block(27.1, 14.75, 27.8, 15.65, 0.85)
   // churrasqueira (muro sul)
   box(1.1, 0.9, 0.55, 0xa0522d, 26.2, 0, 15.65); const coal = box(0.95, 0.04, 0.4, 0x222222, 26.2, 0.9, 15.65)
   const fire = light(0xff6a20, 0, 5, 26.2, 1.3, 15.3)
-  act(coal, () => (fire.intensity ? 'Apagar o carvão' : 'Acender o carvão'), () => { fire.intensity = fire.intensity ? 0 : 4; (coal.material as THREE.MeshLambertMaterial).color.set(fire.intensity ? 0xff4a10 : 0x222222); if (fire.intensity) toast('Cheiro de churrasco. Cadê a carne?') })
   box(0.25, 1.4, 0.25, 0xa0522d, 26.2, 0, 15.85)
   block(25.6, 15.3, 26.8, 15.95, 0.9)
   // mesa e cadeiras de plástico
@@ -703,7 +881,7 @@ export function buildProps(scene: THREE.Scene) {
   for (const [cx, cz] of [[23.5, 13.6], [25.1, 13.6], [24.3, 12.8]]) { box(0.42, 0.04, 0.42, 0xffffff, cx, 0.45, cz); box(0.04, 0.45, 0.04, 0xdddddd, cx, 0, cz) }
   block(23.1, 12.5, 25.5, 14.7, 0.77)
   // horta (canteiros com terra vermelha)
-  for (const hx of [22.4, 23.7]) { box(1.0, 0.25, 0.6, 0x7a3b22, hx, 0, 15.6); for (let i = 0; i < 4; i++) ball(0.14, 0x3fa34d, hx - 0.35 + i * 0.23, 0.38, 15.6) }
+  for (const hx of [22.4, 23.7]) box(1.0, 0.25, 0.6, 0x7a3b22, hx, 0, 15.6) // as plantas ficam no bloco "QUINTAL VIVO"
   block(21.8, 15.2, 24.2, 16, 0.3)
   // caixa d'água
   cyl(0.6, 1.2, 0x1e6fb8, 26.8, 0, 9.0); block(26.2, 8.4, 27.4, 9.6, 1.2)
@@ -954,6 +1132,8 @@ export function buildProps(scene: THREE.Scene) {
     const now = performance.now()
     if (bellOffAt > now) { toast('A campainha foi arrancada da parede. Só sobrou o fio.'); return }
     rings = now - lastRing > 40000 ? 1 : rings + 1; lastRing = now
+    if (rings === 1) bellLog.unshift({ h: gameHour(), who: pick(['Entregador do iFood', 'Vizinho pedindo açúcar', 'Testemunha de Jeová', 'Moleque do tereré', 'Cobrador (de novo)', 'Carteiro com um pacote', 'Alguém com cara de pegadinha']), n: 1 }); else if (bellLog[0]) bellLog[0].n = rings
+    bellLog.length = Math.min(bellLog.length, 6)
     chime(Math.max(0.03, Math.min(0.35, 0.45 - Math.hypot(playerPos.x - 18, playerPos.z - 8) / 60)))
     const asleep = state.cmd('wave') === false
     if (asleep && rings < 4) { toast(`Ding-dong! 🔔 Ninguém atende (o Smoll tá dormindo). [${rings}]`); return }
@@ -1057,6 +1237,191 @@ export function buildProps(scene: THREE.Scene) {
   dumbbell(18.4, 14.55); dumbbell(18.4, 14.8)
   ITEMS[defineItem('Halter')].use = () => toast(pick(['Você levantou o halter. 3 repetições e desistiu.', 'Treino de braço concluído (1 rep).', 'O halter te venceu.']))
 
+  // ================= CÔMODOS PREENCHIDOS: oficina, sala, varanda, corredor, garagem e quintal =================
+  type Kd = 'food' | 'wear' | 'drink' | 'junk'
+  const item = (name: string, build: (g: THREE.Group) => void, kind?: Kd, use?: () => void) => { const id = defineItem(name, build); if (kind) ITEMS[id].kind = kind; if (use) ITEMS[id].use = use; return id }
+  const sph = (r: number, c: number, x: number, y: number, z: number, g: THREE.Object3D, sy = 1) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), lm(c)); m.position.set(x, y, z); m.scale.y = sy; g.add(m); return m }
+  const hit = (w: number, h: number, d: number, x: number, y: number, z: number) => ghost(box(w, h, d, 0xffffff, x, y, z)) // alvo de clique invisível
+  const lab = (text: string, x: number, y: number, z: number, rot: number, w = 0.22, bg = '#f4f1e8') => wallPlane(w, w * 0.32, tex(160, 52, (g, cw, ch) => { g.fillStyle = bg; g.fillRect(0, 0, cw, ch); g.fillStyle = '#222'; g.font = 'bold 26px sans-serif'; g.textAlign = 'center'; g.fillText(text, cw / 2, 35) }), x, y, z, rot)
+  /** guarda de volta num baú (clique com o item na mão): ok = ids aceitos (vazio = qualquer um) */
+  const stash = (stock: { id: string; n: number }[], ok: string[] = []) => (id: string) => {
+    if (ok.length && !ok.includes(id)) { toast('Isso não vai aqui.'); return true }
+    const s = stock.find((x) => x.id === id); if (s) s.n++; else stock.push({ id, n: 1 }); clink(); toast(`Guardou ${ITEMS[id].name}.`); return 'consume'
+  }
+  const hasPower = () => { if (state.power) return true; toast('Sem energia. Alguém desligou o disjuntor.'); return false }
+
+  // plantas que crescem em 4 estágios enquanto estão molhadas (regador, copo de água ou mangueira); no estágio 4 dá pra colher
+  const idRegador = item('Regador', (g) => { cyl(0.07, 0.14, 0x2e9a3c, 0, 0, 0, g); box(0.02, 0.02, 0.16, 0x2e9a3c, 0, 0.1, 0.12, g); box(0.02, 0.1, 0.02, 0x2e9a3c, 0, 0.14, -0.08, g) })
+  const idAlface = item('Alface', (g) => { sph(0.06, 0x7ccf5a, 0, 0.05, 0, g, 0.8) }, 'food'), idFlor = item('Flor', (g) => { cyl(0.006, 0.12, 0x3f8f3f, 0, 0, 0, g); sph(0.035, 0xe84a8a, 0, 0.13, 0, g) })
+  const CROP: Record<string, [string, number, string]> = { flor: ['a flor', 0xe84a8a, idFlor], tomate: ['o tomate', 0xd0302a, 'tomate'], cenoura: ['a cenoura', 0xf08a20, 'cenoura'], alface: ['a alface', 0x7ccf5a, idAlface], pimenta: ['a pimenta', 0xc02020, idPimenta] } as never
+  type Plant = { x: number; z: number; wet: number; grow: number }
+  const plants: Plant[] = []
+  const waterPlants = (x: number, z: number, r: number) => { let n = 0; for (const p of plants) if (Math.hypot(p.x - x, p.z - z) <= r) { p.wet = Math.min(120, p.wet + 60); n++ } return n }
+  const mkPlant = (x: number, y: number, z: number, kind: keyof typeof CROP, pot: boolean) => {
+    const [nome, col, out] = CROP[kind], g = new THREE.Group(); g.position.set(x, y, z); scene.add(g)
+    if (pot) cyl(0.13, 0.2, 0xb5651d, 0, 0, 0, g)
+    const sg = new THREE.Group(); sg.position.y = pot ? 0.2 : 0; g.add(sg); cyl(0.012, 0.4, 0x3f8f3f, 0, 0, 0, sg)
+    for (const [lx, ly, lz] of [[0.07, 0.2, 0], [-0.06, 0.28, 0.03], [0, 0.36, -0.06], [0.03, 0.14, 0.07]]) sph(0.07, 0x3fa34d, lx, ly, lz, sg, 0.6)
+    const fruits = [[0.08, 0.16, 0.05], [-0.07, 0.24, -0.04], [0.02, 0.33, 0.07]].map(([fx, fy, fz]) => sph(0.04, col, fx, fy, fz, sg))
+    const p: Plant = { x, z, wet: 0, grow: 0 }; plants.push(p)
+    const stage = () => (p.grow >= 70 ? 3 : p.grow >= 35 ? 2 : p.grow >= 12 ? 1 : 0)
+    let shown = -1
+    const show = () => { const s = stage(); if (s === shown) return; shown = s; sg.scale.setScalar([0.3, 0.55, 0.8, 1][s]); fruits.forEach((f) => (f.visible = s === 3)) }
+    show(); ticks.push((dt) => { if (p.wet > 0) { p.wet -= dt; p.grow += dt } show() })
+    act(g, () => (stage() === 3 ? `Colher ${nome}` : p.wet > 0 ? `${nome[0].toUpperCase() + nome.slice(1)}: crescendo (${stage() + 1}/4)` : `${nome[0].toUpperCase() + nome.slice(1)} (${stage() + 1}/4): com sede`), () => {
+      if (stage() === 3) { if (giveItem(out)) { p.grow = 35; toast(`Colheu ${nome}! 🌱 (+ ${ITEMS[out].name})`) } return }
+      toast(p.wet > 0 ? 'Tá crescendo bem. Agora é esperar.' : 'Tá murchinha. Rega com o regador, um copo de água ou a mangueira.')
+    }, (id) => { if (id === idRegador) { p.wet = Math.min(120, p.wet + 60); toast('Regou. As folhas agradecem. 💧'); return true } if (id === idAgua) { p.wet = Math.min(120, p.wet + 30); toast('Regou com o copo de água. 💧'); return 'consume' } toast('Isso não é adubo.'); return true })
+    return g
+  }
+
+  // ---------- OFICINA VIVA (x 1–7, z 1–6) ----------
+  const idChave = item('Chave de fenda', (g) => { box(0.02, 0.02, 0.09, 0xf1c40f, 0, 0, 0, g); box(0.008, 0.008, 0.07, 0xcccccc, 0, 0.006, -0.075, g) })
+  const idMartelo = item('Martelo', (g) => { box(0.02, 0.02, 0.2, 0x6b4a2a, 0, 0, 0, g); box(0.09, 0.04, 0.04, 0x555a60, 0, 0, -0.11, g) })
+  const idAlicate = item('Alicate', (g) => { box(0.02, 0.012, 0.12, 0xc0392b, -0.012, 0, 0, g); box(0.02, 0.012, 0.12, 0xc0392b, 0.012, 0, 0, g); box(0.05, 0.012, 0.04, 0x888888, 0, 0, -0.08, g) })
+  const idFita = item('Fita isolante', (g) => { cyl(0.035, 0.025, 0x111111, 0, 0, 0, g); cyl(0.02, 0.027, 0x888888, 0, 0, 0, g) })
+  const idMulti = item('Multímetro', (g) => { box(0.07, 0.03, 0.13, 0xf1c40f, 0, 0, 0, g); box(0.05, 0.005, 0.04, 0x9fe0a0, 0, 0.03, -0.035, g); cyl(0.015, 0.006, 0x222222, 0, 0.03, 0.02, g) })
+  const idSolda = item('Ferro de solda', (g) => { cyl(0.012, 0.14, 0x222222, 0, 0, 0, g).rotation.x = Math.PI / 2; cyl(0.004, 0.05, 0xcccccc, 0, 0, -0.095, g).rotation.x = Math.PI / 2 })
+  const idParafuso = item('Parafuso', (g) => { cyl(0.006, 0.03, 0xaaaaaa, 0, 0, 0, g); cyl(0.012, 0.006, 0xaaaaaa, 0, 0.03, 0, g) })
+  const idPorca = item('Porca', (g) => { cyl(0.015, 0.012, 0x8a8f94, 0, 0, 0, g) })
+  const idPrego = item('Prego', (g) => { cyl(0.003, 0.06, 0x777777, 0, 0, 0, g) })
+  const idCabo = item('Cabo USB', (g) => { box(0.01, 0.01, 0.2, 0x111111, 0, 0, 0, g); box(0.02, 0.01, 0.025, 0xcccccc, 0, 0, -0.11, g) })
+  const idLampada = item('Lâmpada', (g) => { sph(0.04, 0xfff2c0, 0, 0.07, 0, g); cyl(0.02, 0.035, 0xaaaaaa, 0, 0, 0, g) })
+  const idPilha = item('Pilha', (g) => { cyl(0.013, 0.05, 0x2e9a3c, 0, 0, 0, g); cyl(0.006, 0.008, 0xcccccc, 0, 0.05, 0, g) })
+  const idRam = defineItem('Pente de RAM', (g) => { box(0.13, 0.03, 0.004, 0x1a1a22, 0, 0.015, 0, g); box(0.12, 0.012, 0.005, 0x30e0a0, 0, 0.02, 0.003, g) })
+  const idExt = item('Extintor', (g) => { cyl(0.05, 0.28, 0xc0182c, 0, 0, 0, g); cyl(0.015, 0.05, 0x222222, 0, 0.28, 0, g); box(0.07, 0.015, 0.015, 0x222222, 0.03, 0.31, 0, g) })
+  const B_EXT = (g: THREE.Group) => ITEMS[idExt].build!(g)
+  // ferramentas na bancada (voltam sozinhas) e a caixa de ferramentas de verdade
+  thing(3.95, 0.93, 1.62, 'Pegar a chave de fenda', ['Chave de fenda de ponta amarela. A única que serve.', 'Chave Phillips: a mais perdida da casa.'], ITEMS[idChave].build!)
+  thing(4.95, 0.93, 1.6, 'Pegar o alicate', ['Alicate de bico. Pega firme e arranha tudo.', 'Alicate universal. Universal até demais.'], ITEMS[idAlicate].build!)
+  thing(5.2, 0.93, 1.66, 'Pegar a fita isolante', ['Fita isolante preta. Conserta tudo, inclusive o que não devia.', 'Fita quase no fim. Sempre.'], ITEMS[idFita].build!)
+  thing(5.7, 0.93, 1.55, 'Pegar o martelo', ['Martelo de unha. Resolve o problema do jeito que dá.', 'Martelo: o botão de reiniciar da oficina.'], ITEMS[idMartelo].build!)
+  thing(6.2, 0.93, 1.35, 'Pegar o ferro de solda', ['Ferro de solda desligado. Ainda bem.', 'Ponta suja de estanho. Dá pra queimar o dedo mesmo frio.'], ITEMS[idSolda].build!)
+  const toolStock = [{ id: idChave, n: 1 }, { id: idMartelo, n: 1 }, { id: idAlicate, n: 1 }, { id: idFita, n: 2 }, { id: idParafuso, n: 8 }]
+  act(caixaFerr, 'Abrir caixa de ferramentas', () => { clink(); openChest('🧰 Caixa de ferramentas', toolStock) }, stash(toolStock, [idChave, idMartelo, idAlicate, idFita, idParafuso, idPorca, idMulti, idSolda]))
+  // gaveteiro de parafusos (4 gavetas que abrem) ao lado da prateleira
+  box(0.65, 0.9, 0.45, 0x7a5a3a, 2.625, 0, 1.275); block(2.3, 1.05, 2.95, 1.5, 0.9)
+  const gavs: [string, { id: string; n: number }[]][] = [['Parafusos', [{ id: idParafuso, n: 14 }]], ['Porcas e arruelas', [{ id: idPorca, n: 10 }]], ['Pregos', [{ id: idPrego, n: 20 }]], ['Cabos e fita', [{ id: idCabo, n: 3 }, { id: idFita, n: 1 }]]]
+  gavs.forEach(([nome, st], i) => {
+    const d = box(0.6, 0.19, 0.02, 0xa0764a, 2.625, 0.06 + i * 0.215, 1.51); box(0.14, 0.02, 0.03, 0xc9b037, 2.625, 0.15 + i * 0.215, 1.53)
+    act(d, `Abrir gaveta: ${nome}`, () => { clink(); openChest(`🗄️ Gaveta: ${nome}`, st) }, stash(st))
+  })
+  // prateleiras etiquetadas com caixas que abrem
+  box(1.1, 1.6, 0.03, 0x6e5435, 1.65, 0, 1.015); for (const px of [1.1, 2.2]) box(0.04, 1.6, 0.35, 0x6e5435, px, 0, 1.175)
+  for (const sy of [0.02, 0.5, 0.95, 1.4]) box(1.1, 0.04, 0.35, 0x6e5435, 1.65, sy, 1.175)
+  const caixas: [number, number, string, number, { id: string; n: number }[]][] = [
+    [1.4, 0.54, 'PEÇAS PC', 0x2e86de, [{ id: idRam, n: 2 }, { id: idCabo, n: 1 }]], [1.82, 0.54, 'CABOS', 0x555555, [{ id: idCabo, n: 4 }]],
+    [1.4, 0.99, 'LÂMPADAS', 0xf1c40f, [{ id: idLampada, n: 2 }]], [1.82, 0.99, 'PILHAS', 0x2e9a3c, [{ id: idPilha, n: 6 }]], [1.6, 1.44, 'SUCATA', 0x8a5a3a, [{ id: idPorca, n: 3 }, { id: idMulti, n: 1 }]],
+  ]
+  for (const [cx, cy, nome, col, st] of caixas) {
+    const b = box(0.32, 0.22, 0.28, col, cx, cy, 1.18); lab(nome, cx, cy + 0.11, 1.321, 0, 0.26)
+    act(b, `Abrir a caixa ${nome}`, () => { clink(); openChest(`📦 ${nome}`, st) }, stash(st))
+  }
+  block(1.1, 1.0, 2.2, 1.35, 1.5)
+  // bancada de eletrônica (parede oeste): osciloscópio, ferro de solda com fumaça, multímetro e RAM
+  box(0.7, 0.06, 1.6, 0x4a5a63, 1.35, 0.84, 2.8); for (const [lx, lz] of [[1.1, 2.1], [1.6, 2.1], [1.1, 3.5], [1.6, 3.5]]) box(0.04, 0.84, 0.04, 0x444444, lx, 0, lz)
+  block(1.0, 2.0, 1.7, 3.6, 0.9)
+  const scope = box(0.3, 0.22, 0.3, 0x3a3f45, 1.35, 0.9, 2.45); let scopeOn = false
+  const scopeCv = document.createElement('canvas'); scopeCv.width = 128; scopeCv.height = 80
+  const scopeTex = new THREE.CanvasTexture(scopeCv); scopeTex.colorSpace = THREE.SRGBColorSpace
+  const scopeDraw = () => {
+    const c = scopeCv.getContext('2d')!; c.fillStyle = scopeOn ? '#06210f' : '#050505'; c.fillRect(0, 0, 128, 80)
+    if (!scopeOn) { scopeTex.needsUpdate = true; return }
+    c.strokeStyle = '#0f4a25'; c.lineWidth = 1; for (let i = 0; i <= 8; i++) { c.beginPath(); c.moveTo(i * 16, 0); c.lineTo(i * 16, 80); c.stroke() } for (let i = 0; i <= 5; i++) { c.beginPath(); c.moveTo(0, i * 16); c.lineTo(128, i * 16); c.stroke() }
+    c.strokeStyle = '#3dff7a'; c.lineWidth = 2; c.beginPath(); for (let x = 0; x < 128; x++) { const y = 40 + Math.sin(x * 0.18 + clock * 6) * 22 + Math.sin(x * 0.5 + clock * 11) * 4; x ? c.lineTo(x, y) : c.moveTo(x, y) } c.stroke(); scopeTex.needsUpdate = true
+  }
+  scopeDraw(); wallPlane(0.22, 0.14, scopeTex, 1.505, 1.0, 2.45, Math.PI / 2); box(0.04, 0.04, 0.04, 0xcc3333, 1.52, 0.93, 2.35); box(0.04, 0.04, 0.04, 0x3333cc, 1.52, 0.93, 2.55)
+  let scopeT = 0; ticks.push((dt) => { if (scopeOn && (scopeT += dt) > 0.1 && Math.hypot(playerPos.x - 1.4, playerPos.z - 2.5) < 6) { scopeT = 0; scopeDraw() } })
+  act(scope, () => (scopeOn ? 'Desligar o osciloscópio' : 'Ligar o osciloscópio'), () => { if (!scopeOn && !hasPower()) return; scopeOn = !scopeOn; scopeDraw(); if (scopeOn) toast(pick(['Onda senoidal linda. Ninguém sabe o que ela mede.', 'O sinal tem mais ruído que a reunião de segunda.'])) }, (id) => {
+    if (id === idMulti) { toast(`Multímetro na ponta de prova: ${(4.9 + Math.random() * 0.2).toFixed(2)} V. Tá certinho. 📟`); return true }
+    toast('Não dá pra medir isso.'); return true
+  })
+  const solBase = box(0.1, 0.02, 0.15, 0x222222, 1.3, 0.9, 2.95); cyl(0.012, 0.12, 0x555555, 1.3, 0.92, 2.9); const tip = sph(0.014, 0x555555, 1.3, 1.07, 2.9, scene)
+  let solT = 0
+  const smoke = Array.from({ length: 6 }, () => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5, depthWrite: false })); m.visible = false; scene.add(m); return m })
+  ticks.push((dt) => {
+    if (solT > 0) { solT -= dt; smoke.forEach((m, i) => { const k = (clock * 0.45 + i / 6) % 1; m.visible = true; m.position.set(1.3 + Math.sin(i * 2 + clock) * 0.05 * k, 1.1 + k * 0.5, 2.9); m.scale.setScalar(1 + k * 2.5); (m.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - k) }); if (solT <= 0) { (tip.material as THREE.MeshLambertMaterial).color.set(0x555555); toast('O ferro de solda esfriou.') } }
+    else smoke.forEach((m) => (m.visible = false))
+  })
+  act(solBase, () => (solT > 0 ? 'Ferro de solda quente (fumaça!)' : 'Ligar o ferro de solda'), () => { if (solT > 0) { toast('Quente! Cuidado com o dedo.'); return } if (!hasPower()) return; solT = 12; (tip.material as THREE.MeshLambertMaterial).color.set(0xff4a10); toast('Ferro esquentando… cheiro de estanho e de coragem. 🔥') }, (id) => {
+    if (id === idExt) { solT = Math.min(solT, 0.1); toast('Você apagou um ferro de solda com um extintor. Exagero nível Smoll. 🧯'); return true }
+    toast('Nada pra soldar com isso.'); return true
+  })
+  thing(1.3, 0.9, 3.2, 'Pegar o multímetro', ['Multímetro com a bateria fraca. Mede 5 V e dúvidas.', 'Multímetro amarelo. Já salvou a casa de um curto.'], ITEMS[idMulti].build!)
+  thing(1.45, 0.9, 3.45, 'Pegar o pente de RAM', ['Pente de RAM DDR5 sobrando. O PC do Smoll agradece.', 'RAM nova, ainda na embalagem antiestática.'], ITEMS[idRam].build!)
+  // quadro de ideias com post-its (o texto fica salvo no navegador)
+  const NK = 'smollPostits', POST = ['#fff176', '#ffab91', '#a5d6a7', '#90caf9', '#f48fb1', '#ce93d8']
+  const loadNotes = (): string[] => { try { return JSON.parse(localStorage[NK]) } catch { return ['Comprar Kuat', 'TODO: dormir', 'o portão é bug ou feature?'] } }
+  let notes = loadNotes()
+  const pCv = document.createElement('canvas'); pCv.width = 256; pCv.height = 192
+  const pTex = new THREE.CanvasTexture(pCv); pTex.colorSpace = THREE.SRGBColorSpace
+  const pDraw = () => {
+    const c = pCv.getContext('2d')!; c.fillStyle = '#b08a55'; c.fillRect(0, 0, 256, 192); c.strokeStyle = '#6b4a2a'; c.lineWidth = 8; c.strokeRect(0, 0, 256, 192)
+    c.fillStyle = '#fff'; c.font = 'bold 14px sans-serif'; c.fillText('IDEIAS', 10, 20)
+    notes.slice(-8).forEach((t, i) => { const x = 8 + (i % 4) * 61, y = 30 + Math.floor(i / 4) * 78; c.fillStyle = POST[i % 6]; c.fillRect(x, y, 56, 70); c.fillStyle = '#222'; c.font = '10px sans-serif'; t.match(/.{1,9}(\s|$)|\S+/g)?.slice(0, 5).forEach((l, j) => c.fillText(l.trim(), x + 4, y + 14 + j * 12)) })
+    pTex.needsUpdate = true
+  }
+  pDraw()
+  const quadroIdeias = wallPlane(1.1, 0.82, pTex, 1.015, 1.5, 4.7, Math.PI / 2)
+  act(quadroIdeias, 'Ler o quadro de ideias', () => openPanel('📌 Quadro de ideias', () => `<small>Fica salvo no seu navegador.</small><br>${notes.length ? notes.map((t, i) => `<span style="background:${POST[i % 6]};color:#222;padding:2px 6px;border-radius:3px;margin:2px;display:inline-block">${t.replace(/</g, '&lt;')}</span>`).join('') : '<i>Quadro vazio.</i>'}`, [
+    { t: '✍️ Escrever post-it', keep: true, fn: () => { const t = prompt('Escreva o post-it (até 40 letras):'); if (t?.trim()) { notes.push(t.trim().slice(0, 40)); notes = notes.slice(-12); try { localStorage[NK] = JSON.stringify(notes) } catch { /* sem storage */ } pDraw() } } },
+    { t: '🗑️ Arrancar o último', keep: true, fn: () => { notes.pop(); try { localStorage[NK] = JSON.stringify(notes) } catch { /* sem storage */ } pDraw() } },
+  ]))
+  // impressora 3D: escolhe o brinquedo, imprime em 20 s e vira item
+  const dinoB = (g: THREE.Group) => { box(0.12, 0.07, 0.05, 0x3fa34d, 0, 0.03, 0, g); box(0.05, 0.06, 0.045, 0x3fa34d, 0.08, 0.09, 0, g); box(0.1, 0.03, 0.03, 0x3fa34d, -0.1, 0.05, 0, g); box(0.025, 0.04, 0.025, 0x2e7d32, -0.03, 0, 0.02, g); box(0.025, 0.04, 0.025, 0x2e7d32, 0.03, 0, -0.02, g) }
+  const fogB = (g: THREE.Group) => { cyl(0.03, 0.14, 0xe8e8e8, 0, 0, 0, g); const n = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 10), lm(0xc0182c)); n.position.y = 0.17; g.add(n); box(0.1, 0.02, 0.01, 0xc0182c, 0, 0.02, 0, g); box(0.01, 0.02, 0.1, 0xc0182c, 0, 0.02, 0, g) }
+  const robB = (g: THREE.Group) => { box(0.08, 0.1, 0.05, 0x8a9aa8, 0, 0.03, 0, g); box(0.06, 0.05, 0.05, 0xb8c4cc, 0, 0.14, 0, g); cyl(0.004, 0.04, 0x333333, 0, 0.19, 0, g); sph(0.012, 0xff4040, 0, 0.21, 0, g); box(0.025, 0.07, 0.025, 0x8a9aa8, -0.055, 0.03, 0, g); box(0.025, 0.07, 0.025, 0x8a9aa8, 0.055, 0.03, 0, g) }
+  const patB = (g: THREE.Group) => { sph(0.05, 0xf2d030, 0, 0.05, 0, g, 0.85); sph(0.03, 0xf2d030, 0.04, 0.11, 0, g); box(0.03, 0.012, 0.025, 0xf08a20, 0.075, 0.11, 0, g) }
+  const TOYS: [string, string, (g: THREE.Group) => void][] = [['Dinossauro 3D', '🦖', dinoB], ['Foguete 3D', '🚀', fogB], ['Robozinho 3D', '🤖', robB], ['Patinho 3D', '🦆', patB]]
+  const toyIds = TOYS.map(([n, , b]) => item(n, b, undefined, () => toast(pick(['Você fez "pew pew". O brinquedo não respondeu.', 'Brincou de dinossauro vs. foguete. Empate.', 'O brinquedo cheira a plástico quente.']))))
+  box(0.65, 0.05, 0.75, 0x6e5435, 6.58, 0.75, 2.4); for (const lx of [6.3, 6.86]) for (const lz of [2.07, 2.73]) box(0.04, 0.75, 0.04, 0x444444, lx, 0, lz)
+  box(0.4, 0.03, 0.4, 0x222222, 6.58, 0.8, 2.4); for (const lx of [6.4, 6.76]) box(0.03, 0.42, 0.03, 0xc0392b, lx, 0.8, 2.22); box(0.38, 0.03, 0.03, 0xc0392b, 6.58, 1.2, 2.22)
+  const phead = new THREE.Group(); phead.position.set(6.58, 1.05, 2.25); scene.add(phead); box(0.08, 0.05, 0.05, 0x333333, 0, 0, 0, phead); cyl(0.008, 0.04, 0xf1c40f, 0, -0.04, 0, phead)
+  const toyG = new THREE.Group(); toyG.position.set(6.58, 0.83, 2.4); scene.add(toyG)
+  const job = { toy: -1, t: 0, done: false }
+  const printer = hit(0.6, 0.5, 0.6, 6.58, 0.8, 2.4)
+  ticks.push((dt) => {
+    if (job.toy < 0) return
+    if (!job.done && state.power) { job.t += dt; toyG.scale.set(1, Math.max(0.05, job.t / 20), 1); phead.position.x = 6.58 + Math.sin(clock * 6) * 0.12; phead.position.y = 0.86 + (job.t / 20) * 0.1; if (job.t >= 20) { job.done = true; clink(0.2); toast('Impressora 3D: impressão concluída! 🖨️') } }
+  })
+  const startPrint = (i: number) => { if (job.toy >= 0) { toast('A impressora já tá ocupada.'); return } if (!hasPower()) return; job.toy = i; job.t = 0; job.done = false; toyG.clear(); TOYS[i][2](toyG); toyG.scale.set(1, 0.05, 1); toast(`Imprimindo ${TOYS[i][0]}… (20 s) 🖨️`) }
+  const printerFn = () => {
+    if (job.done) { if (giveItem(toyIds[job.toy])) { toast(`Pegou o ${TOYS[job.toy][0]} ainda quentinho. 🎁`); job.toy = -1; toyG.clear() } return }
+    openPanel('🖨️ Impressora 3D', () => job.toy < 0 ? 'Escolhe o brinquedo. Leva 20 segundos e sai quentinho.' : `Imprimindo <b>${TOYS[job.toy][0]}</b>…<div style="background:#333;border-radius:4px;margin-top:6px"><div style="background:#2ecc71;height:10px;border-radius:4px;width:${Math.min(100, job.t * 5)}%"></div></div>${job.done ? 'Pronto! Fecha e aperta E na impressora.' : state.power ? '' : '⚠️ Sem energia.'}`, TOYS.map(([n, ic], i) => ({ t: `${ic} ${n.replace(' 3D', '')}`, fn: () => startPrint(i) })))
+  }
+  act(printer, () => (job.done ? 'Pegar o brinquedo impresso' : job.toy >= 0 ? 'Impressora 3D (imprimindo…)' : 'Usar a impressora 3D'), printerFn)
+  // ventilador de mesa quebrado: conserta com a chave de fenda na mão
+  const vf = new THREE.Group(); vf.position.set(5.9, 0, 4.8); scene.add(vf)
+  cyl(0.18, 0.03, 0x333333, 0, 0, 0, vf); cyl(0.025, 0.75, 0x888888, 0, 0.03, 0, vf); box(0.14, 0.14, 0.2, 0x444444, 0, 0.78, 0, vf)
+  const blades = new THREE.Group(); blades.position.set(-0.12, 0.85, 0); vf.add(blades); for (let i = 0; i < 4; i++) { const arm = new THREE.Group(); arm.rotation.x = (i * Math.PI) / 2; blades.add(arm); box(0.015, 0.15, 0.06, 0x9fd0e8, 0, 0.09, 0, arm) }
+  box(0.01, 0.44, 0.44, 0xaaaaaa, -0.2, 0.63, -0.22, vf).visible = false
+  const vfan = { broken: true, on: false }
+  ticks.push((dt) => { if (vfan.on && state.power && !vfan.broken) blades.rotation.x += dt * 20 })
+  act(vf, () => (vfan.broken ? 'Ventilador de mesa (quebrado)' : vfan.on ? 'Desligar o ventilador' : 'Ligar o ventilador'), () => {
+    if (vfan.broken) { toast(pick(['Não liga. Tem um parafuso solto na base. (Pega a chave de fenda e clica nele.)', 'Quebrado. O Smoll diz que "é só apertar um parafuso".'])); return }
+    if (!hasPower()) return; vfan.on = !vfan.on
+  }, (id) => {
+    if (id === idChave && vfan.broken) { vfan.broken = false; vfan.on = true; clink(0.2); toast('Apertou o parafuso e… consertou! O ventilador voltou à vida. 🌀🔧'); return true }
+    toast(vfan.broken ? 'Isso não resolve. Procura a chave de fenda.' : 'Já tá funcionando. Não mexe.'); return true
+  })
+  block(5.7, 4.6, 6.1, 5.0, 0.9)
+  world.acao.consertar = () => { if (vfan.broken) { vfan.broken = false; vfan.on = true; toast('Smoll apertou o parafuso e consertou o ventilador. 🔧') } else { vfan.on = !vfan.on; toast('Smoll não tinha nada pra consertar, então mexeu no ventilador. 🌀') } }
+  // bicicleta no cavalete: pneu da frente furado → remendo com fita isolante → enche
+  const bikeG = new THREE.Group(); bikeG.position.set(2.6, 0, 3.9); scene.add(bikeG)
+  const wheel = (z: number) => { const m = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 22), lm(0x151515)); m.rotation.y = Math.PI / 2; m.position.set(0, 0.3, z); bikeG.add(m); return m }
+  const wheelF = wheel(-0.5), wheelB = wheel(0.5); void wheelB
+  box(0.03, 0.03, 0.8, 0xc0182c, 0, 0.58, 0, bikeG); const dt1 = box(0.03, 0.03, 0.55, 0xc0182c, 0, 0.3, 0.2, bikeG); dt1.rotation.x = 0.7; box(0.03, 0.3, 0.03, 0x222222, 0, 0.55, 0.3, bikeG); box(0.1, 0.03, 0.18, 0x222222, 0, 0.84, 0.3, bikeG)
+  box(0.03, 0.5, 0.03, 0x888888, 0, 0.3, -0.45, bikeG); box(0.4, 0.03, 0.03, 0x222222, 0, 0.82, -0.45, bikeG); box(0.5, 0.03, 0.04, 0x555555, 0, 0, -0.5, bikeG); box(0.5, 0.03, 0.04, 0x555555, 0, 0, 0.5, bikeG)
+  const bk = { st: 0 } // 0 furado, 1 remendado, 2 cheio
+  wheelF.scale.y = 0.82
+  act(bikeG, () => ['Bicicleta (pneu da frente furado)', 'Bicicleta (remendo feito: falta encher)', 'Bicicleta (pneu cheio)'][bk.st], () => {
+    if (bk.st === 0) toast('Pneu furado. Remenda com fita isolante (clica com ela na mão).')
+    else if (bk.st === 1) { bk.st = 2; wheelF.scale.y = 1; toast('Encheu o pneu na bomba de pé. Tá redondinho. 🚲') } else toast(pick(['Rodou a roda. Ela gira pra sempre (no cavalete).', 'Plim-plim! A campainha da bike funciona.']))
+  }, (id) => { if (id === idFita && bk.st === 0) { bk.st = 1; toast('Colou a fita no furo. Gambiarra nota 10. (agora é só encher: E)'); return true } toast('Isso não conserta pneu.'); return true })
+  block(2.35, 3.3, 2.85, 4.5, 0.7)
+  thing(5.75, 0, 5.75, 'Pegar o extintor', ['Extintor de pó químico, validade 2022. Vamos torcer.', 'Extintor pesado. Serve pra fogo e pra se sentir seguro.'], B_EXT)
+  // @@MAIS@@
+
   // ---------- LUZES E INTERRUPTORES ----------
   // cada cômodo tem lâmpada(s) de teto e um interruptor na parede (ventilador tem o seu ao lado). Começam apagadas: de dia a casa já está clara.
   type Lamp = { set(on: boolean): void }
@@ -1078,10 +1443,10 @@ export function buildProps(scene: THREE.Scene) {
   const switchRoom = (places: Place[], lamps: Lamp[], fan?: THREE.Object3D) => {
     let on = false; lamps.forEach((l) => l.set(false))
     const rname = ROOMS[roomIdx++]
-    world.luz[rname] = () => { if (!state.power) return; on = !on; lamps.forEach((l) => l.set(on)) }
-    if (fan) world.ventilador[rname] = () => { if (state.power) fan.userData.on = !fan.userData.on }
+    world.luz[rname] = () => { if (!state.power || breakerOff.has(rname)) return; on = !on; lamps.forEach((l) => l.set(on)) }
+    if (fan) world.ventilador[rname] = () => { if (state.power && !breakerOff.has(rname)) fan.userData.on = !fan.userData.on }
     energy.rooms.push({ on: () => on, w: 60 * lamps.length, off: () => { on = false; lamps.forEach((l) => l.set(false)) } })
-    const noPower = () => { if (state.power) return false; toast('Sem energia. Alguém desligou o disjuntor.'); return true }
+    const noPower = () => { if (state.power && !breakerOff.has(rname)) return false; toast(state.power ? 'Sem energia aqui. O disjuntor deste cômodo está desarmado (quadro do corredor).' : 'Sem energia. Alguém desligou o disjuntor.'); return true }
     for (const [px, pz, nx, nz] of places) {
       wallSwitch(px, 1.2, pz, nx, nz, () => (on ? 'Apagar a luz' : 'Acender a luz'), () => { if (noPower()) return; on = !on; lamps.forEach((l) => l.set(on)) })
       if (fan) wallSwitch(px + (nz ? 0.15 : 0), 1.2, pz + (nx ? 0.15 : 0), nx, nz, () => (fan.userData.on ? 'Desligar o ventilador' : 'Ligar o ventilador'), () => { if (noPower()) return; fan.userData.on = !fan.userData.on })

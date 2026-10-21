@@ -1,5 +1,6 @@
 import { state, toast } from './state'
 import { codeState, runCode, DEFAULT_CODE, desk, pcState } from './code'
+import { drawPage } from './screens'
 
 // Desktop do PC do Smoll: tela cheia sobre o jogo, com janelas arrastáveis (VS Code, Navegador com iframe, Terminal) e barra de tarefas.
 const css = document.createElement('style')
@@ -135,10 +136,48 @@ export function openDesktop() {
   if (pcState.mode !== 'ok') { toast(pcState.mode === 'off' ? 'O PC está desligado. Liga pelo gabinete.' : 'O PC está reiniciando…'); return }
   state.editing = true; document.exitPointerLock?.(); root.style.display = 'block'; tick()
   if (cur === 'smoll') ta.value = codeState.lines.join('\n')
-  desk.used = true; syncView()
+  desk.used = true; desk.vw = innerWidth; desk.vh = innerHeight; syncView()
   if (wVs.style.display !== 'flex') show(wVs)
   if (!frame.src) go('https://pt.wikipedia.org/', true)
 }
 export function closeDesktop() { if (cur === 'smoll') codeState.lines = ta.value.split('\n'); root.style.display = 'none'; state.editing = false }
 root.querySelector('.exit')!.addEventListener('click', closeDesktop)
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && root.style.display === 'block') closeDesktop() })
+
+// ---- espelho nos monitores: o mesmo desktop (papel de parede, ícones, janelas na mesma posição e tamanho, conteúdo, barra de tarefas) desenhado em canvas ----
+export function drawDesktop(c: CanvasRenderingContext2D, w: number, h: number, now: number) {
+  const VW = desk.vw || 1568, VH = desk.vh || 772, k = w / VW, kv = h / VH
+  const g = c.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#2b5fb8'); g.addColorStop(0.6, '#14213d'); g.addColorStop(1, '#0a0f1f'); c.fillStyle = g; c.fillRect(0, 0, w, h)
+  const f = (px: number) => `${Math.max(6, px * k * 1.7)}px sans-serif`
+  c.textAlign = 'center'; c.fillStyle = '#fff'
+  ;['💻 VS Code', '🌐 Navegador', '⌨️ Terminal', '🗑️ Lixeira'].forEach((t, i) => { const [ic, n] = t.split(' '); c.font = `${Math.max(14, 34 * k)}px sans-serif`; c.fillText(ic, 50 * k, (58 + i * 96) * kv); c.font = f(11); c.fillText(n, 50 * k, (82 + i * 96) * kv) })
+  c.textAlign = 'left'
+  const order: [keyof typeof desk, HTMLDivElement, string][] = [['vs', wVs, 'smoll.ts — Visual Studio Code'], ['web', wWeb, 'Navegador'], ['term', wTerm, 'Terminal — smoll@pc']]
+  order.filter(([key]) => desk[key]).sort((a, b) => (+a[1].style.zIndex || 0) - (+b[1].style.zIndex || 0)).forEach(([key, el, title]) => {
+    const x = parseFloat(el.style.left) * k, y = parseFloat(el.style.top) * kv, ww = el.offsetWidth ? el.offsetWidth * k : parseFloat(el.style.width) * k, hh = el.offsetHeight ? el.offsetHeight * kv : parseFloat(el.style.height) * kv
+    const tb = Math.max(8, 30 * kv)
+    c.fillStyle = '#1e1e1e'; c.fillRect(x, y, ww, hh); c.fillStyle = '#2d2d30'; c.fillRect(x, y, ww, tb)
+    c.fillStyle = '#ddd'; c.font = f(12); c.fillText(key === 'vs' ? `${desk.file} — Visual Studio Code` : title, x + 8 * k, y + tb * 0.7); c.fillStyle = '#c42b1c'; c.fillRect(x + ww - 16 * k, y + 2, 14 * k, tb - 4)
+    const by = y + tb, bh = hh - tb
+    if (key === 'vs') {
+      c.fillStyle = '#252526'; c.fillRect(x, by, 150 * k, bh); c.font = f(12)
+      ;['smoll.ts', 'README.md', 'bugs.txt', 'senhas.txt'].forEach((n, i) => { c.fillStyle = n === desk.file ? '#fff' : '#aaa'; if (n === desk.file) { c.fillStyle = '#37373d'; c.fillRect(x, by + (6 + i * 22) * kv, 150 * k, 20 * kv); c.fillStyle = '#fff' } c.fillText(n, x + 14 * k, by + (22 + i * 22) * kv) })
+      const L = desk.lines ?? codeState.lines, lh = 18 * kv, off = Math.max(0, desk.cursor - Math.floor((bh - 40 * kv) / lh) + 1)
+      c.font = `${Math.max(6, 13 * k * 1.5)}px monospace`
+      for (let i = 0; i + off < L.length && 30 * kv + i * lh < bh - 24 * kv; i++) { const ln = L[i + off]; c.fillStyle = ln.trim().startsWith('//') ? '#6a9955' : /\b(const|let|function|export|import|return|if|while|await|new)\b/.test(ln) ? '#9cdcfe' : '#d4d4d4'; c.fillText(ln.slice(0, 60), x + 160 * k, by + 30 * kv + i * lh) }
+      if (Math.floor(now * 2) % 2) { c.fillStyle = '#fff'; c.fillRect(x + (160 + Math.min(desk.col, 60) * 7.8) * k, by + 18 * kv + (desk.cursor - off) * lh, 1.5, lh * 0.8) }
+      c.fillStyle = '#007acc'; c.fillRect(x, y + hh - 20 * kv, ww, 20 * kv)
+    } else if (key === 'web') {
+      c.fillStyle = '#35363a'; c.fillRect(x, by, ww, 36 * kv); c.fillStyle = '#202124'; c.fillRect(x + 50 * k, by + 6 * kv, ww - 120 * k, 24 * kv)
+      c.fillStyle = '#9aa0a6'; c.font = f(12); c.fillText(desk.url.replace(/^https?:\/\//, '').slice(0, 60), x + 62 * k, by + 23 * kv)
+      const py = by + 64 * kv, ph = hh - tb - 64 * kv
+      c.save(); c.beginPath(); c.rect(x, py, ww, ph); c.clip(); c.translate(x, py); c.scale(ww / 512, ph / 300); drawPage(c, desk.url, 0, 300, 512, now); c.restore()
+    } else {
+      c.fillStyle = '#0c0c0c'; c.fillRect(x, by, ww, bh); c.fillStyle = '#ccc'; c.font = `${Math.max(6, 13 * k * 1.5)}px monospace`
+      const lines = (tpre.textContent ?? '').split('\n').slice(-Math.floor(bh / (16 * kv)) + 1)
+      lines.forEach((ln, i) => c.fillText(ln.slice(0, 70), x + 6 * k, by + 16 * kv + i * 16 * kv))
+    }
+  })
+  c.fillStyle = '#101620'; c.fillRect(0, h - 38 * kv, w, 38 * kv); c.fillStyle = '#ddd'; c.font = f(12); c.fillText('⏻ Sair do PC', 10 * k, h - 14 * kv)
+  c.textAlign = 'right'; c.fillText(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), w - 10 * k, h - 14 * kv); c.textAlign = 'left'
+}

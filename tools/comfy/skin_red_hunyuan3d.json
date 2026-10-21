@@ -141,11 +141,11 @@
         "ver": "0.3.43"
       },
       "widgets_values": [
-        "smoll_skin_red_3d.png",
+        "smoll_skin_red_sq.png",
         "image"
       ],
       "widgets_values_named": {
-        "image": "smoll_skin_red_3d.png",
+        "image": "smoll_skin_red_sq.png",
         "upload": "image"
       }
     },
@@ -195,10 +195,10 @@
       "title": "Note: Model link",
       "properties": {},
       "widgets_values": [
-        "## Input Asset\n\n- [smoll_skin_red_3d.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/smoll_skin_red_3d.png)\n\n## Model Link\n\n- [Hugging Face:Comfy-Org/hunyuan3D_2.0_repackaged](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged)\n\n**checkpoints**\n\n- [hunyuan3d-dit-v2_fp16.safetensors](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged/resolve/main/split_files/hunyuan3d-dit-v2_fp16.safetensors) (4.59 GB)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   └── 📂 checkpoints/\n│       └── hunyuan3d-dit-v2_fp16.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+        "## Input Asset\n\n- [smoll_skin_red_sq.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/smoll_skin_red_sq.png)\n\n## Model Link\n\n- [Hugging Face:Comfy-Org/hunyuan3D_2.0_repackaged](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged)\n\n**checkpoints**\n\n- [hunyuan3d-dit-v2_fp16.safetensors](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged/resolve/main/split_files/hunyuan3d-dit-v2_fp16.safetensors) (4.59 GB)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   └── 📂 checkpoints/\n│       └── hunyuan3d-dit-v2_fp16.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
       ],
       "widgets_values_named": {
-        "text": "## Input Asset\n\n- [smoll_skin_red_3d.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/smoll_skin_red_3d.png)\n\n## Model Link\n\n- [Hugging Face:Comfy-Org/hunyuan3D_2.0_repackaged](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged)\n\n**checkpoints**\n\n- [hunyuan3d-dit-v2_fp16.safetensors](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged/resolve/main/split_files/hunyuan3d-dit-v2_fp16.safetensors) (4.59 GB)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   └── 📂 checkpoints/\n│       └── hunyuan3d-dit-v2_fp16.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+        "text": "## Input Asset\n\n- [smoll_skin_red_sq.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/smoll_skin_red_sq.png)\n\n## Model Link\n\n- [Hugging Face:Comfy-Org/hunyuan3D_2.0_repackaged](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged)\n\n**checkpoints**\n\n- [hunyuan3d-dit-v2_fp16.safetensors](https://huggingface.co/Comfy-Org/hunyuan3D_2.0_repackaged/resolve/main/split_files/hunyuan3d-dit-v2_fp16.safetensors) (4.59 GB)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   └── 📂 checkpoints/\n│       └── hunyuan3d-dit-v2_fp16.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
       },
       "color": "#222",
       "bgcolor": "#000"

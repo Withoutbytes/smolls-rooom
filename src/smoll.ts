@@ -138,9 +138,9 @@ export function buildSmoll(scene: THREE.Scene) {
       desk: [17.5, 12.2], qin: [15.8, 11.8], qdoor: [15.5, 10.5], c15: [15.5, 8.5], c16: [16.5, 8.5], c10: [10.5, 8.5], c9: [9.5, 8.5], c4: [4.5, 8.5],
       kdoor: [16.5, 6.5], kin: [16.5, 5.2], fridge: [17.6, 1.6], sdoor: [10.5, 6.5], sin: [10.5, 5.0], tv: [11.95, 4.4], bdoor: [9.5, 10.5], bin: [9.5, 12.6], shower: [10.2, 13.8],
       g1: [15.0, 13.4], gtr: [13.4, 14.4], qsw: [16.45, 11.7], ssw: [9.0, 4.4],
-      sofa: [10.5, 1.75], kw1: [15.2, 4.9], kw2: [15.2, 2.4], pia: [16.5, 2.1], fogao: [17.7, 2.5], mesa: [16.5, 2.6],
+      sofa: [10.5, 1.75], kw1: [15.2, 4.9], kw2: [15.2, 2.4], pia: [16.5, 2.1], fogao: [17.9, 4.95], mesa: [16.5, 2.6],
     }
-    const E: [string, string][] = [['desk', 'qin'], ['qin', 'qdoor'], ['qdoor', 'c15'], ['c15', 'c16'], ['c15', 'c10'], ['c10', 'c9'], ['c9', 'c4'], ['c16', 'kdoor'], ['kdoor', 'kin'], ['kin', 'kw1'], ['kw1', 'kw2'], ['kw2', 'pia'], ['pia', 'fogao'], ['fogao', 'fridge'], ['pia', 'mesa'],
+    const E: [string, string][] = [['desk', 'qin'], ['qin', 'qdoor'], ['qdoor', 'c15'], ['c15', 'c16'], ['c15', 'c10'], ['c10', 'c9'], ['c9', 'c4'], ['c16', 'kdoor'], ['kdoor', 'kin'], ['kin', 'kw1'], ['kw1', 'kw2'], ['kw2', 'pia'], ['kw1', 'fogao'], ['fogao', 'fridge'], ['pia', 'mesa'],
       ['c10', 'sdoor'], ['sdoor', 'sin'], ['sin', 'tv'], ['sin', 'sofa'], ['sin', 'ssw'], ['c9', 'bdoor'], ['bdoor', 'bin'], ['bin', 'shower'], ['qin', 'g1'], ['g1', 'gtr'], ['qin', 'qsw']]
     const route = (to: string): [number, number][] => { // busca em largura no grafo
       const prev: Record<string, string> = { desk: '' }, q = ['desk']
@@ -156,8 +156,10 @@ export function buildSmoll(scene: THREE.Scene) {
       assistir: { to: 'sofa', face: -Math.PI / 2, clip: 'laugh', secs: 50, sit: 0.14, run: () => { anim!.stand(false); if (!tv.on) world.tv(); toast('Smoll sentou no sofá pra assistir TV com você. 📺🛋️') } },
       cafe: { to: 'pia', face: Math.PI / 2, clip: 'sip', secs: 7, run: () => world.cozinha.cafe() },
       louca: { to: 'pia', face: Math.PI / 2, clip: 'scratch', secs: 5, run: () => world.cozinha.louca() },
-      cozinhar: { to: 'fogao', face: 0, clip: 'point', secs: 5, run: () => world.cozinha.cozinhar() },
+      cozinhar: { to: 'fogao', face: -Math.PI / 2, clip: 'point', secs: 5, run: () => world.cozinha.cozinhar() },
       comer: { to: 'mesa', face: -Math.PI / 2, clip: 'thumbs', secs: 5, run: () => toast('Smoll comeu em pé, na mesa, sem prato. Quem lava é depois. 🍽️') },
+      almocar: { to: 'mesa', face: -Math.PI / 2, clip: 'thumbs', secs: 12, run: () => { toast('Smoll pegou prato, garfo e faca e sentou pra almoçar. 🍛'); world.cozinha.almocar() } },
+      guardar: { to: 'fridge', face: 0, clip: 'point', secs: 4, run: () => world.cozinha.guardar() },
       agua: { to: 'pia', face: Math.PI / 2, clip: 'sip', secs: 3, run: () => toast('Smoll bebeu água do filtro. 💧') },
       banheiro: { to: 'bin', face: -Math.PI / 2, clip: 'stretch', secs: 5, run: () => toast('Smoll foi ao banheiro. 🚽') },
       kuat: { to: 'fridge', face: 0, clip: 'sip', secs: 3.6, run: () => toast('Smoll abriu a geladeira e pegou uma Kuat gelada. 🥤') },

@@ -7,6 +7,7 @@ Tudo roda na máquina (RTX 5070 Ti, 16 GB). Nada de nuvem, nada de custo.
 | Arquivo | O que faz |
 |---|---|
 | `skin_red_pipeline.json` | Receita a foto da skin, tira o fundo, melhora o detalhe e salva em alta resolução |
+| `skin_red_hunyuan3d.json` | Transforma a imagem limpa em um `.glb` de forma (Hunyuan3D 2.0) e reduz a malha |
 | `skin_red_trellis2.json` | Transforma a imagem limpa em um `.glb` texturizado (TRELLIS.2) |
 | `skin_red_front.json`, `skin_red_inpaint.json` | Tentativas anteriores (img2img / inpaint do corpo), deixadas como referência |
 
@@ -46,10 +47,27 @@ TRELLIS.2 (modelo instalado: `trellis_2_int8_convrot.safetensors`, 5 GB) gera fo
 
 VRAM: o upsample em 1024 é o ponto pesado. Se faltar memória, baixe `target_resolution` para 1024 (mínimo aceitado) e `RemeshMesh.resolution` para 256.
 
+## O que o `skin_red_hunyuan3d.json` faz
+
+Hunyuan3D 2.0 (`hunyuan3d-dit-v2_fp16.safetensors`, 4.6 GB) no ComfyUI base, sem nós customizados:
+
+1. **LoadImage** — precisa de uma **entrada quadrada**: `CLIPVisionEncode` tem `crop: center`, então um retrato 640x1472 recorta só o tronco e o corpo sai deformado. Use `tools/3d/square_input.py` para centralizar o personagem num 1024x1024 branco.
+2. **Hunyuan3Dv2Conditioning** + **EmptyLatentHunyuan3Dv2** (resolution 3072) + **KSampler** (20 passos, cfg 8, euler).
+3. **VAEDecodeHunyuan3D** (`octree_resolution 512`) → **VoxelToMesh** → **DecimateMesh** (QEM, 30 mil faces) → **SaveGLB**.
+
+A malha sai **cinza, sem textura**: os nós Hunyuan3D do ComfyUI base só fazem forma. Para colorir, projeta a foto sobre a malha:
+
+```
+python tools/3d/paint_from_photo.py <glb_sem_textura> tools/raw/smoll_skin_red_640.png public/models/smoll_skin_red_hunyuan.glb
+```
+
+O script alinha pela altura e pela silhueta do personagem, cola as laterais na borda da silhueta (o corpo veste ao redor) e escurece levemente o lado de trás. Escreve `COLOR_0` por vértice — o Three.js mostra isso com `material.vertexColors = true`.
+
 ## Modelos usados (já baixados)
 
 - `realvisxlV50_v50Bakedvae_703211.safetensors` — SDXL realista
 - `4x-UltraSharp.pth` — upscale
 - `birefnet.safetensors` — recorte de fundo
+- `hunyuan3d-dit-v2_fp16.safetensors` — Hunyuan3D 2.0 (só forma)
 - `dino_v3_L_naf_fp32.safetensors` — visão do TRELLIS
 - `trellis_2_int8_convrot.safetensors`, `trellis_2_shape_vae_bf16.safetensors`, `trellis_2_texture_vae_bf16.safetensors` — TRELLIS.2

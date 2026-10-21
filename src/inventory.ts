@@ -8,12 +8,17 @@ export type Kind = 'drink' | 'food' | 'wear' | 'junk'
 export type ItemDef = { name: string; icon: string; img?: string; kind: Kind; build?: (g: THREE.Group) => void; scale?: number; use?: () => void } // use: ferramenta (controle, celular): clique esquerdo chama isso
 type Stack = { id: string; n: number }
 export const ITEMS: Record<string, ItemDef> = {}
+export const leftovers: Record<string, string> = {} // item comido → resíduo que sobra (casca, miolo): props.ts preenche
 const SLOTS = 36, HOT = 9, MAX = 16
 export const slots: (Stack | null)[] = Array(SLOTS).fill(null)
 let sel = 0
 
 // ícone e tipo pelo nome do item
 const LOOK: [RegExp, string, Kind][] = [
+  [/casca|embalagem|miolo/i, '🗑️', 'junk'], [/pano de prato/i, '🧽', 'junk'], [/garfo|faca|concha|esp[aá]tula/i, '🍴', 'junk'],
+  [/arroz soltinho/i, '🍚', 'food'], [/feij[aã]o cozido/i, '🫘', 'food'], [/bife/i, '🥩', 'food'], [/macarronada/i, '🍝', 'food'], [/p[aã]o com ovo|sandu[ií]che/i, '🥪', 'food'], [/vitamina/i, '🥭', 'drink'],
+  [/^arroz$/i, '🍚', 'junk'], [/^feij[aã]o$/i, '🫘', 'junk'], [/^macarr[aã]o$/i, '🍝', 'junk'], [/^carne$/i, '🥩', 'junk'], [/^sal$/i, '🧂', 'junk'], [/pimenta/i, '🌶️', 'junk'], [/^[oó]leo/i, '🫒', 'junk'], [/^gelo/i, '🧊', 'junk'], [/molho/i, '🍅', 'junk'],
+  [/^p[aã]o$/i, '🍞', 'food'], [/queijo/i, '🧀', 'food'], [/presunto/i, '🥓', 'food'], [/banana/i, '🍌', 'food'], [/ma[cç][aã]/i, '🍎', 'food'], [/laranja/i, '🍊', 'food'], [/sorvete/i, '🍨', 'food'], [/cenoura/i, '🥕', 'food'], [/tomate/i, '🍅', 'food'],
   [/p[oó] de caf/i, '☕', 'junk'], [/ovo frito/i, '🍳', 'food'], [/miojo pronto/i, '🍜', 'food'], [/cuscuz/i, '🌽', 'food'], [/queimada/i, '🔥', 'junk'], [/copo de [aá]gua/i, '💧', 'drink'],
   [/energ[eé]tico/i, '⚡', 'drink'], [/vasinho|planta/i, '🪴', 'junk'], [/headset/i, '🎧', 'wear'], [/mouse/i, '🖱️', 'junk'],
   [/prato/i, '🍽️', 'junk'], [/copo/i, '🥛', 'junk'], [/panela/i, '🍲', 'junk'], [/frigideira/i, '🍳', 'junk'], [/colher/i, '🥄', 'junk'], [/^ovo$/i, '🥚', 'food'], [/leite/i, '🥛', 'drink'], [/miojo/i, '🍜', 'junk'], [/floc[aã]o/i, '🌽', 'junk'],
@@ -153,18 +158,34 @@ type Phys = { ground: (x: number, z: number, y: number) => number; free: (x: num
 type Drop = { g: THREE.Group; v: THREE.Vector3; rest: boolean }
 const drops: Drop[] = []
 let world: { camera: THREE.Camera; scene: THREE.Scene; phys: Phys } | null = null
-function dropHeld(throwIt: boolean) {
-  const s = slots[sel]; if (!s || !world) return
-  const d = ITEMS[s.id], { camera, scene } = world
-  const dir = new THREE.Vector3(); camera.getWorldDirection(dir)
+/** cria o objeto solto no mundo (pegável de novo) com velocidade v */
+function spawn(id: string, pos: THREE.Vector3, v: THREE.Vector3) {
+  const d = ITEMS[id], { scene } = world!
   const g = new THREE.Group()
   if (d.build) d.build(g)
   else { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshLambertMaterial({ color: 0xcccccc })); m.position.y = 0.05; g.add(m) }
-  g.position.copy(camera.position).addScaledVector(dir, 0.5); g.position.y -= 0.15
-  const id = s.id
+  g.position.copy(pos)
   act(g, `Pegar ${d.name}`, () => { if (!give(id)) return; scene.remove(g); drops.splice(drops.findIndex((x) => x.g === g), 1) })
-  scene.add(g)
-  drops.push({ g, v: dir.multiplyScalar(throwIt ? 7 : 1.3).add(new THREE.Vector3(0, throwIt ? 1.5 : 0.8, 0)), rest: false })
+  scene.add(g); drops.push({ g, v, rest: false })
+}
+/** chute: solta o item em `from` voando na direção do olhar (bola de futebol) */
+export function kick(id: string, from: THREE.Vector3, speed = 6, up = 2.5) {
+  if (!world || !ITEMS[id]) return
+  const dir = new THREE.Vector3(); world.camera.getWorldDirection(dir); dir.y = 0; dir.normalize()
+  spawn(id, from, dir.multiplyScalar(speed).add(new THREE.Vector3(0, up, 0)))
+}
+/** binóculos: aproxima a câmera por alguns segundos */
+export function zoomCam(ms = 4000) {
+  const c = world?.camera as THREE.PerspectiveCamera | undefined; if (!c?.isPerspectiveCamera) return
+  const f0 = c.fov; c.fov = f0 / 3; c.updateProjectionMatrix()
+  setTimeout(() => { c.fov = f0; c.updateProjectionMatrix() }, ms)
+}
+function dropHeld(throwIt: boolean) {
+  const s = slots[sel]; if (!s || !world) return
+  const d = ITEMS[s.id], { camera } = world
+  const dir = new THREE.Vector3(); camera.getWorldDirection(dir)
+  const pos = camera.position.clone().addScaledVector(dir, 0.5); pos.y -= 0.15
+  spawn(s.id, pos, dir.multiplyScalar(throwIt ? 7 : 1.3).add(new THREE.Vector3(0, throwIt ? 1.5 : 0.8, 0)))
   takeOne(sel); swing = 1
   toast(throwIt ? `Arremessou ${d.name}!` : `Soltou ${d.name}.`)
 }
@@ -220,8 +241,8 @@ addEventListener('mousedown', (e) => {
   const d = ITEMS[s.id]; swing = 1
   if (d.use) { d.use(); return } // ferramenta: tem uso próprio (controle da TV, celular)
   const t = getTarget()
-  const r = t?.use?.(s.id, d.kind)
-  if (r) { if (r === 'consume') takeOne(sel); return }
+  const r = t?.use?.(s.id, d.kind), lo = leftovers[s.id]
+  if (r) { if (r === 'consume') { takeOne(sel); if (lo) give(lo) } return }
   const msg = SELF[d.kind](d.name, s.id)
-  if (msg) { toast(msg); if (d.kind === 'drink' || d.kind === 'food') takeOne(sel) }
+  if (msg) { toast(msg); if (d.kind === 'drink' || d.kind === 'food') { takeOne(sel); if (lo) give(lo) } }
 })

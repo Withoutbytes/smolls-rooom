@@ -15,8 +15,8 @@ const SIT: Pose = {
   ...clonePose(REST), ry: -0.264, rz: -0.02, lean: 0.16, hp: 0.1,
   L: limb([0.10, -0.88, 0.40], [-0.6, -0.28, 1], [-0.45, -0.55, 1]),
   R: limb([-0.10, -0.88, 0.40], [-0.25, -0.28, 1], [-0.2, -0.55, 1]),
-  TL: [0.10, -0.30, 1], SL: [0, -1, 0.06], FL: [0, -0.08, 1],
-  TR: [-0.10, -0.30, 1], SR: [0, -1, 0.06], FR: [0, -0.08, 1],
+  TL: [0.03, -0.22, 1], SL: [-0.03, -1, 0.05], FL: [0, -0.08, 1],   // joelhos juntos (antes abriam pros lados), canelas levemente pra dentro
+  TR: [-0.03, -0.22, 1], SR: [0.03, -1, 0.05], FR: [0, -0.08, 1],
 }
 const STAND: Pose = clonePose(REST)
 // deitado de costas na cama: braços dobrados com as mãos na barriga
