@@ -1,0 +1,26 @@
+Reading prompt from stdin...
+OpenAI Codex v0.162.1
+--------
+workdir: C:\Users\mutecb\Documents\Projetos\smolls-rooom\tools\raw
+model: gpt-6-luna
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a15f4b-150c-7691-b7ba-de65bb9e4f94
+--------
+user
+Use your image generation tool to create exactly ONE image and nothing else (do not write code, do not edit files).
+
+The image shows ONE single game asset for a first-person game set inside a brick house in Rondonia, Brazil (hot Amazon climate, red dirt everywhere). Stylized hand-painted cartoon game art (rich colors, bold clean outlines, soft shading, lots of small realistic details like wear, dust, stickers, cables), seen straight from the FRONT, flat and orthographic, centered, filling most of the frame, completely in focus, nothing cropped. No ground, no cast shadow, no text, no frame, no border. Background: a perfectly flat solid pure white (#FFFFFF) fill, nothing else.
+
+The character is SmoLL: an adult Brazilian man in his thirties, programmer from Rondonia, thick voluminous wavy black hair swept back and up with one loose lock over the forehead, strong dark thick eyebrows, brown eyes, a full curved dark mustache joined to a neatly trimmed full dark beard with a goatee, NO glasses, medium lean build. Match the face and art style of the attached reference image, but dressed casually: a dark gray oversized hoodie, shorts and slippers. Pose: seated on a black gamer chair, seen from BEHIND, hands up as if typing, head slightly tilted toward the screens. Show only the character and the chair.
+
+codex
+Vou gerar uma única imagem com o personagem sentado de costas, conforme a pose descrita.
+codex
+
+tokens used
+9.585
+

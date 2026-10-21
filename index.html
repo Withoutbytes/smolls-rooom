@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smoll's Room</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #111; }
+    #hud { position: fixed; inset: 0; display: grid; place-items: center; color: #fff; font: 16px sans-serif; pointer-events: none; text-shadow: 0 1px 3px #000; }
+    #tip { position: fixed; left: 50%; top: 56%; transform: translateX(-50%); display: none; color: #fff; font: 15px sans-serif; background: #000a; padding: 6px 12px; border-radius: 6px; pointer-events: none; }
+    #toast { position: fixed; left: 50%; bottom: 14%; transform: translateX(-50%); opacity: 0; transition: opacity .3s; color: #fff; font: 16px sans-serif; background: #000b; padding: 8px 16px; border-radius: 8px; pointer-events: none; text-align: center; max-width: 80vw; }
+    #counts { position: fixed; right: 14px; top: 10px; color: #fff; font: 16px sans-serif; text-shadow: 0 1px 3px #000; pointer-events: none; }
+    #fade { position: fixed; inset: 0; background: #000; opacity: 0; transition: opacity .6s; pointer-events: none; }
+    #dialog { position: fixed; left: 50%; bottom: 6%; transform: translateX(-50%); display: none; width: min(560px, 92vw); color: #eee; font: 15px sans-serif; background: #111e; border: 1px solid #555; border-radius: 10px; padding: 12px 16px; }
+    #dialog p { margin: 6px 0 8px; } #dialog b { color: #7ee787; } #dialog div { padding: 3px 0; }
+    #dialog pre { margin: 0 0 8px; padding: 8px; background: #0d1117; color: #79c0ff; border-radius: 6px; font: 13px monospace; white-space: pre-wrap; }
+    #labels { position: fixed; inset: 0; display: none; pointer-events: none; }
+    #labels span { position: absolute; transform: translate(-50%, -50%); color: #fff; font: bold 13px sans-serif; text-shadow: 0 0 4px #000, 0 0 4px #000; white-space: nowrap; }
+    #editor { position: fixed; inset: 8% 12%; display: none; flex-direction: column; background: #0d1117f2; border: 1px solid #30363d; border-radius: 10px; z-index: 5; font: 14px sans-serif; color: #e6edf3; }
+    #editor .bar { padding: 10px 14px; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; } #editor .bar b { flex: 1; color: #7ee787; }
+    #editor button { background: #238636; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; } #editor button.sec { background: #30363d; }
+    #ta { flex: 1; background: #0d1117; color: #e6edf3; border: 0; padding: 14px; font: 14px/1.5 monospace; resize: none; outline: none; }
+    #out { margin: 0; padding: 10px 14px; border-top: 1px solid #30363d; color: #79c0ff; font: 13px monospace; white-space: pre-wrap; max-height: 28%; overflow: auto; }
+    #cross { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #fff8; }
+  </style>
+</head>
+<body>
+  <div id="hud">Clique para jogar — WASD anda, mouse olha, <b>E</b> interage (olhe pro objeto), ESC solta o mouse</div>
+  <div id="cross"></div>
+  <div id="tip"></div><div id="toast"></div><div id="counts">🥭 0   🥤 0</div><div id="fade"></div><div id="labels"></div>
+  <div id="editor"><div class="bar"><b>smoll.ts — PC do Smoll</b><button id="run">▶ Executar (Ctrl+Enter)</button><button id="reset" class="sec">Restaurar</button><button id="close" class="sec">Fechar (Esc)</button></div><textarea id="ta" spellcheck="false"></textarea><pre id="out"></pre></div><div id="dialog"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

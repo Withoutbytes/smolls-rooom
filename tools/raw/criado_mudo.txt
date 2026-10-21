@@ -1,0 +1,5 @@
+Use your image generation tool to create exactly ONE image and nothing else (do not write code, do not edit files).
+
+The image shows ONE single game asset for a first-person game set inside a brick house in Rondonia, Brazil (hot Amazon climate, red dirt everywhere). Stylized hand-painted cartoon game art (rich colors, bold clean outlines, soft shading, lots of small realistic details like wear, dust, stickers, cables), seen straight from the FRONT, flat and orthographic, centered, filling most of the frame, completely in focus, nothing cropped. No ground, no cast shadow, no text, no frame, no border. Background: a perfectly flat solid pure white (#FFFFFF) fill, nothing else.
+
+The asset: a small wooden bedside table with a lit table lamp with a warm yellow shade, a glass of water, a phone charging and a tiny cactus.

@@ -1,0 +1,23 @@
+OpenAI Codex v0.162.1
+--------
+workdir: C:\Users\mutecb\Documents\Projetos\smolls-rooom\tools\raw
+model: gpt-6-luna
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a15f4e-5a81-77e1-8221-3c13ee16392d
+--------
+user
+Use your image generation tool to create exactly ONE image and nothing else (do not write code, do not edit files).
+
+The image shows ONE single game asset for a first-person game set inside a brick house in Rondonia, Brazil (hot Amazon climate, red dirt everywhere). Stylized hand-painted cartoon game art (rich colors, bold clean outlines, soft shading, lots of small realistic details like wear, dust, stickers, cables), seen straight from the FRONT, flat and orthographic, centered, filling most of the frame, completely in focus, nothing cropped. No ground, no cast shadow, no text, no frame, no border. Background: a perfectly flat solid pure white (#FFFFFF) fill, nothing else.
+
+The asset: a white aluminum window with a sliding glass pane, a thin mosquito screen, beige curtains tied to the sides, a small plant on the sill; through the glass a warm late-afternoon orange sky and a mango tree on red dirt ground.
+
+codex
+
+tokens used
+7.363
+
