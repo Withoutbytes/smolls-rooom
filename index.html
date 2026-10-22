@@ -13,7 +13,8 @@
     #fade { position: fixed; inset: 0; background: #000; opacity: 0; transition: opacity .6s; pointer-events: none; }
     #dialog { position: fixed; left: 50%; bottom: 6%; transform: translateX(-50%); display: none; width: min(560px, 92vw); color: #eee; font: 15px sans-serif; background: #111e; border: 1px solid #555; border-radius: 10px; padding: 12px 16px; }
     #dialog .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-    #dialog button { text-align: left; padding: 8px 10px; background: #222a; color: #eee; border: 1px solid #444; border-radius: 6px; font: 15px sans-serif; cursor: pointer; }
+    #dialog button { display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; background: #222a; color: #eee; border: 1px solid #444; border-radius: 6px; font: 15px sans-serif; cursor: pointer; }
+    #dialog button img { width: 34px; height: 34px; border-radius: 5px; flex: none; } /* thumbnail da ação (tools/act-icons.html) */
     #dialog button:hover { background: #2f6f3f; }
     #dialog p { margin: 6px 0 8px; } #dialog b { color: #7ee787; } 
     #dialog pre { margin: 0 0 8px; padding: 8px; background: #0d1117; color: #79c0ff; border-radius: 6px; font: 13px monospace; white-space: pre-wrap; }

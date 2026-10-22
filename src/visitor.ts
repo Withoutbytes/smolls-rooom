@@ -66,6 +66,14 @@ const SIT_V = (() => {
   p.L.u = [0.18, -0.9, 0.3]; p.L.f = [-0.2, -0.4, 0.9]; p.L.h = p.L.f; p.R.u = [-0.18, -0.9, 0.3]; p.R.f = [0.2, -0.4, 0.9]; p.R.h = p.R.f
   return p
 })()
+// agachado (Shift): bacia baixa, coxas pra frente e pra baixo, canelas dobradas pra trás (os pés ficam no chão), tronco inclinado, braços um pouco à frente
+const CROUCH_V = (() => {
+  const p = clonePose(REST)
+  p.ry = -0.3; p.lean = 0.22; p.hp = -0.12
+  p.TL = [0.04, -0.42, 0.91]; p.SL = [0.02, -0.8, -0.6]; p.TR = [-0.04, -0.42, 0.91]; p.SR = [-0.02, -0.8, -0.6]
+  p.L.u = [0.2, -0.85, 0.45]; p.L.f = [-0.15, -0.55, 0.8]; p.L.h = p.L.f; p.R.u = [-0.2, -0.85, 0.45]; p.R.f = [0.15, -0.55, 0.8]; p.R.h = p.R.f
+  return p
+})()
 export function createVisitor() {
   if (!geometry) return null
   const rig = buildRig(geometry, new THREE.MeshLambertMaterial({ map }), VISITOR_SKEL)
@@ -73,16 +81,18 @@ export function createVisitor() {
   const s = HEIGHT / NATIVE_H
   const mw = new THREE.Group(); mw.scale.setScalar(s); mw.position.y = 0.999 * s; mw.add(rig.mesh); holder.add(mw)
   const cur = clonePose(REST)
-  let phase = 0, idle: Idle | null = null, idleT = 0, nextIdle = 2 + Math.random() * 4, forced = false
+  let crAmt = 0, phase = 0, idle: Idle | null = null, idleT = 0, nextIdle = 2 + Math.random() * 4, forced = false
   return {
     object: holder,
     /** speed em m/s; chamado todo frame */
     /** gesto vindo da rede ('acenar' | 'aplaudir' | 'dancar' | 'rir' | 'apontar') */
     emote(name: string) { const k = EMOTES[name]; if (k) { idle = k; idleT = 0; forced = true } },
-    update(dt: number, t: number, speed: number, sitting = false) {
+    update(dt: number, t: number, speed: number, sitting = false, crouching = false) {
+      crAmt += ((crouching && !sitting ? 1 : 0) - crAmt) * Math.min(1, dt * 9)
       const amp = Math.min(1, speed / 2.2)
       phase += dt * (2 + speed * 2.2)
-      const pose = sitting ? clonePose(SIT_V) : walkPose(REST, phase, amp, t)
+      const pose = sitting ? clonePose(SIT_V) : walkPose(REST, phase, amp * (1 - 0.55 * crAmt), t)
+      if (crAmt > 0.01) lerpPose(pose, CROUCH_V, crAmt) // agachado: a pose de agachar domina, o passo fica curto
       if (forced && idle) { // gesto escolhido pelo jogador: roda até o fim, andando ou parado
         idleT += dt; idleMod(idle, idleT, pose); if (idleT > DUR[idle]) { idle = null; forced = false; nextIdle = 3 + Math.random() * 6 }
       } else if (sitting) {

@@ -12,7 +12,7 @@ const mirror = (l: Limb): Limb => ({ u: mx(l.u), f: mx(l.f), h: mx(l.h) })
 
 // sentado na cadeira digitando: bacia baixa (coxa na cadeira), tronco inclinado, mãos no teclado (esq.) e no mouse (dir.)
 const SIT: Pose = {
-  ...clonePose(REST), ry: -0.264, rz: -0.02, lean: 0.16, hp: 0.1,
+  ...clonePose(REST), ry: -0.175, rz: -0.02, lean: 0.16, hp: 0.1, // ry: bacia na altura do assento (estofado a 0,38 m); com -0,264 as coxas afundavam 8 cm na cadeira
   L: limb([0.10, -0.88, 0.40], [-0.6, -0.28, 1], [-0.45, -0.55, 1]),
   R: limb([-0.10, -0.88, 0.40], [-0.25, -0.28, 1], [-0.2, -0.55, 1]),
   TL: [0.03, -0.22, 1], SL: [-0.03, -1, 0.05], FL: [0, -0.08, 1],   // joelhos juntos (antes abriam pros lados), canelas levemente pra dentro
@@ -24,10 +24,10 @@ const LYING: Pose = { ...clonePose(REST), L: limb([0.15, -0.95, 0.25], [-0.55, -
 
 // sentado na quina da cama (pés quase no chão, mãos nos joelhos); bedPose mistura em pé → sentado (sit) → deitado (lie)
 const SIT_EDGE: Pose = {
-  ...clonePose(REST), ry: -0.12, lean: 0.12, hp: 0.08,
+  ...clonePose(REST), ry: 0.023, lean: 0.12, hp: 0.08, // bacia na altura da cama (colchão a 0,67 m): a cama é alta, ele senta na quina com as pernas pendendo
   L: limb([0.12, -0.95, 0.2], [0.1, -0.6, 0.8], [0.1, -0.3, 0.9]), R: limb([-0.12, -0.95, 0.2], [-0.1, -0.6, 0.8], [-0.1, -0.3, 0.9]),
-  TL: [0.05, -0.75, 0.66], SL: [0.02, -1, -0.05], FL: [0, -0.1, 1],
-  TR: [-0.05, -0.75, 0.66], SR: [-0.02, -1, -0.05], FR: [0, -0.1, 1],
+  TL: [0.05, -0.8, 0.6], SL: [0.02, -1, -0.05], FL: [0, -0.1, 1],
+  TR: [-0.05, -0.8, 0.6], SR: [-0.02, -1, -0.05], FR: [0, -0.1, 1],
 }
 // ---- poses na cama ----
 // Vetores no espaço local do modelo: +y é o eixo do corpo (pra cabeça), -y pros pés,
@@ -66,12 +66,17 @@ const BED: Record<BedPose, Pose> = {
   // braços e coxas apontando pra -z alcançam o colchão. O lean vem negativo porque, com o corpo rolado,
   // o eixo x do tronco está invertido — serve pra deixar o ombro mais alto que o quadril (o braço tem
   // 0,68 m contra 0,35 m de coxa), como quem engatinha de verdade.
+  // IMPORTANTE: o roll π também espelha a ORIGEM de cada membro (o ombro esquerdo vai pro lado direito
+  // e o quadril esquerdo idem), então os sinais de x aqui são o inverso do que parece — se deixar como
+  // num pose normal, os membros cruzam no meio do corpo. E o hp vem negativo: com o corpo rolado, a
+  // cabeça precisa girar -1 rad em x pra ficar erguida olhando pra ponta da cama (em pose normal, hp
+  // positivo é que "olha pra baixo").
   quatro: bedOf({
-    roll: Math.PI, rz: 0.22, lean: -0.47, hp: 0.2,
-    L: limb([0.25, 0.1, -0.96], [0.2, 0.1, -0.97], [0.2, 0.1, -0.97]),
-    R: limb([-0.25, 0.1, -0.96], [-0.2, 0.1, -0.97], [-0.2, 0.1, -0.97]),
-    TL: nrm([0.3, 0.15, -0.94]), SL: nrm([0.2, -0.7, 0.71]), FL: nrm([0.1, -0.3, -0.95]),
-    TR: nrm([-0.3, 0.15, -0.94]), SR: nrm([-0.2, -0.7, 0.71]), FR: nrm([-0.1, -0.3, -0.95]),
+    roll: Math.PI, rz: 0.22, lean: -0.47, hp: -1.0,
+    L: limb([-0.22, 0.1, -0.97], [-0.18, 0.1, -0.98], [-0.18, 0.1, -0.98]),
+    R: limb([0.22, 0.1, -0.97], [0.18, 0.1, -0.98], [0.18, 0.1, -0.98]),
+    TL: nrm([-0.22, 0.12, -0.97]), SL: nrm([-0.15, -0.7, 0.71]), FL: nrm([-0.1, -0.3, -0.95]),
+    TR: nrm([0.22, 0.12, -0.97]), SR: nrm([0.15, -0.7, 0.71]), FR: nrm([0.1, -0.3, -0.95]),
   }),
   // fetal: joelhos dobrados pra dentro, pernas recolhidas (braços ficam como em LYING)
   curl: bedOf({
@@ -139,6 +144,14 @@ function clipMod(c: Clip, t: number, p: Pose, standing: boolean) {
     }
   }
   void standing
+}
+
+// poses isoladas de cada ação, sem lerp nem locomoção — é o que tools/act-icons.html usa pra
+// renderar as thumbnails do menu. t = meio do clipe, onde o gesto tá mais "legível"
+export const POSES = { stand: clonePose(STAND), sit: clonePose(SIT) }
+export const CLIP_DUR = DUR
+export const clipPose = (c: Clip, t = DUR[c] / 2, standing = true): Pose => {
+  const p = clonePose(standing ? STAND : SIT); clipMod(c, t, p, standing); return p
 }
 
 export function createAnim(rig: Rig, mug: THREE.Object3D) {

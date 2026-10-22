@@ -210,13 +210,14 @@ const narrow = (sp: SkelSpec, ka: number, kl: number, name: string): SkelSpec =>
 }
 const RED0 = narrow(SMOLL_SKEL, 0.78, 0.82, 'smoll-red')
 // virilha dessa malha fica em y ≈ -0,42 (no moletom, -0,28): o quadril desce pra coxa dobrar na dobra da perna, e não no joelho
-export const RED_SKEL: SkelSpec = { ...RED0, cloth: (r, g, b) => r > 100 && r > g * 1.9 && r > b * 1.9, JL: { ...RED0.JL, hp: [RED0.JL.hp[0], -0.32, RED0.JL.hp[2]] } }
+const RED_HP = -0.26 // altura do encaixe da coxa (moletom: -0,20): quanto mais baixo, mais curta a coxa dobrada e mais "em pé" ele parece sentado
+export const RED_SKEL: SkelSpec = { ...RED0, cloth: (r, g, b) => r > 100 && r > g * 1.9 && r > b * 1.9, JL: { ...RED0.JL, hp: [RED0.JL.hp[0], RED_HP, RED0.JL.hp[2]] } }
 
 // Nessa malha a mão nasce colada na coxa: ao sentar, o braço em pose puxa a pele da coxa. Os braços ficam quase na posição de repouso (pendurados), só um pouco influenciados pela pose.
 const REST_RED = restPose(RED_SKEL)
-export function redPose(p: Pose, k = 0.15): Pose {
+export function redPose(p: Pose, k = 1): Pose { // k = quanto o braço segue a pose (1 = tudo): o pano vermelho já não segue o braço (ver `cloth`)
   const q = clonePose(p)
-  q.ry += 0.12 * Math.min(1, Math.max(0, -p.ry / 0.264)) // virilha 0,14 mais baixa: ao sentar a bacia sobe pra coxa não afundar no assento
+  q.ry += (SMOLL_SKEL.JL.hp[1] - RED_HP + 0.065) * Math.min(1, Math.max(0, -p.ry / 0.175)) // o encaixe da coxa é mais baixo que o do moletom: ao sentar a bacia sobe essa diferença, pra coxa ficar na altura do assento
   for (const S of ['L', 'R'] as const) for (const j of ['u', 'f', 'h'] as const) q[S][j] = q[S][j].map((v, i) => REST_RED[S][j][i] + (v - REST_RED[S][j][i]) * k) as V3
   return q
 }

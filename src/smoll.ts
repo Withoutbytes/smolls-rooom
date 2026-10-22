@@ -254,7 +254,7 @@ export function buildSmoll(scene: THREE.Scene) {
             if (miss && trips.restock(miss)) deskMissing.splice(deskMissing.indexOf(miss), 1)
             else if ((idleTrip -= dt) <= 0) { idleTrip = 70 + Math.random() * 110; trips.start(['kuat', 'cafe', 'comer', 'agua', 'banheiro', 'tv'][Math.floor(Math.random() * 6)]) }
           }
-          const t = dist < 3 ? toPlayer : 0 // dentro de 3 m o corpo (e a cadeira) gira pro jogador
+          const t = dist < ((window as any).__turnR ?? 3) ? toPlayer : 0 // __turnR: debug, 0 = o corpo não gira pro jogador (tirar print de lado) // dentro de 3 m o corpo (e a cadeira) gira pro jogador
           yawM += wrap(t - yawM) * Math.min(1, dt * 4)
           M.position.set(MX, 0, CZ); M.rotation.set(0, yawM, 0)
         } else {
@@ -286,19 +286,22 @@ export function buildSmoll(scene: THREE.Scene) {
           } else if (mode === 'falling' || mode === 'rise') {
             // vira de costas pra cama, senta na quina, deita pra trás (a bacia é o pivô: pernas sobem, ele escorrega pra cima do colchão) e fica de barriga pra cima
             // rise é o contrário. sit = 0 em pé → 1 sentado; lie = 0 sentado → 1 deitado
-            const t = mode === 'falling' ? modeT : 4.9 - modeT
+            const t = mode === 'falling' ? modeT : 6.2 - modeT
             let sit = 0, lie = 0, px = 14.85
             if (t < 0.9) yawM += wrap(0 - yawM) * Math.min(1, dt * 6)                          // dá meia-volta
-            else if (t < 2.3) { sit = sm2((t - 0.9) / 1.4); px = 14.85 - 0.85 * sit }          // agacha e senta
-            else { sit = 1; px = 14.0; if (t > 2.9) lie = sm2((t - 2.9) / 2) }                 // deita
+            else if (t < 2.3) { sit = sm2((t - 0.9) / 1.4); px = 14.85 - 0.53 * sit }          // recua e senta na quina: a bacia na borda (x = 14,32) e as coxas pra fora do colchão, que acaba em x = 14,3
+            else { sit = 1; px = 14.32; if (t > 2.9) lie = sm2((t - 2.9) / 3.3) }              // deita
             if (mode === 'rise') { yawM = 0 }
-            const th = lie * Math.PI / 2, yp = 0.75 - 0.106 * sit * (1 - lie)               // altura da bacia no corpo
-            const pxw = px + (13.4 - 14.0) * lie, pyw = sit < 1 ? 0.65 : 0.65 + 0.19 * lie   // bacia no mundo
+            // deitar: o tronco desce e as pernas sobem girando em torno da bacia, que fica na borda pra perna não cortar a quina da cama (colchão + cobertor, 0,67 m);
+            // só no fim (pernas quase na horizontal, por cima do cobertor) ele escorrega pra trás até o travesseiro. ang = giro do corpo (0 sentado, 1 deitado)
+            const ang = lie < 0.45 ? 0.78 * sm2(lie / 0.45) : 0.78 + 0.22 * sm2((lie - 0.45) / 0.55)
+            const th = ang * Math.PI / 2, yp = 0.75 + 0.02 * sit * (1 - ang)                  // altura da bacia no corpo
+            const pxw = lie < 0.45 ? 14.32 - 0.2 * sm2(lie / 0.45) : 14.12 - 0.72 * sm2((lie - 0.45) / 0.55), pyw = 0.84 + 0.06 * Math.sin(Math.PI * lie) // bacia no mundo (sobe um pouco no meio: a perna passa por cima da quina)
             M.rotation.set(0, yawM, th)
-            if (sit < 1) M.position.set(px, 0, 13); else M.position.set(pxw + Math.sin(th) * yp, pyw - Math.cos(th) * yp, 13)
-            anim.loco.bed = { sit, lie }; lying = false
-            if (mode === 'falling' && modeT > 4.9) { mode = 'sleep'; anim.loco.bed = null }
-            if (mode === 'rise' && modeT > 4.9) { mode = 'toDesk'; anim.loco.bed = null; wp = [[17.5, 12.2], [17.95, 13]]; yawM = 0; M.rotation.set(0, 0, 0); M.position.set(14.85, 0, 13) }
+            if (sit < 1) M.position.set(px, 0.07 * sit, 13); else M.position.set(pxw + Math.sin(th) * yp, pyw - Math.cos(th) * yp, 13)
+            anim.loco.bed = { sit, lie: ang }; lying = false
+            if (mode === 'falling' && modeT > 6.2) { mode = 'sleep'; anim.loco.bed = null }
+            if (mode === 'rise' && modeT > 6.2) { mode = 'toDesk'; anim.loco.bed = null; wp = [[17.5, 12.2], [17.95, 13]]; yawM = 0; M.rotation.set(0, 0, 0); M.position.set(14.85, 0, 13) }
           } else { lying = true; anim.loco.bed = null; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, 0.84, 13) } // dormindo
         }
         zzS.visible = mode === 'sleep'

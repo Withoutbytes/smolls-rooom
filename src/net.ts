@@ -17,7 +17,7 @@ function nameTag(name: string, y = 1.95) {
 
 export function connectNet(scene: THREE.Scene) {
   const name = (() => { try { return (localStorage.smollName ??= 'Visitante' + (100 + Math.floor(Math.random() * 900))) } catch { return 'Visitante' } })()
-  const others = new Map<string, { g: THREE.Group; x: number; y: number; z: number; yaw: number; v: ReturnType<typeof createVisitor>; speed: number; parts: THREE.Object3D[]; name: string; sit?: boolean; en?: number }>()
+  const others = new Map<string, { g: THREE.Group; x: number; y: number; z: number; yaw: number; v: ReturnType<typeof createVisitor>; speed: number; parts: THREE.Object3D[]; name: string; sit?: boolean; en?: number; c?: boolean }>()
   let seenEmote = 0, selfV: ReturnType<typeof createVisitor> = null, selfG: THREE.Group | null = null, lastX = 0, lastZ = 0, selfSpeed = 0
   loadVisitorModel() // modelo realista dos visitantes; até carregar (ou se faltar o arquivo) usa o boneco simples
   let ws: WebSocket | null = null, self = '', sendT = 0
@@ -28,7 +28,7 @@ export function connectNet(scene: THREE.Scene) {
       if (m.h !== undefined) { clock.h = m.h; clock.at = performance.now() } // hora do servidor
       if (m.t === 'hi') { self = m.id; return }
       const seen = new Set<string>(), taken = new Set<string>()
-      for (const q of m.p as { id: string; x: number; y?: number; z: number; yaw: number; name: string; sit?: string; e?: string; en?: number }[]) {
+      for (const q of m.p as { id: string; x: number; y?: number; z: number; yaw: number; name: string; sit?: string; e?: string; en?: number; c?: number }[]) {
         if (q.id === self) continue
         seen.add(q.id)
         let o = others.get(q.id)
@@ -46,7 +46,7 @@ export function connectNet(scene: THREE.Scene) {
           others.set(q.id, (o = { g, x: q.x, y: q.y ?? 0, z: q.z, yaw: q.yaw, v, speed: 0, parts, name: q.name }))
         }
         o.x = q.x; o.y = q.y ?? 0; o.z = q.z; o.yaw = q.yaw
-        o.sit = !!q.sit; if (q.sit) taken.add(q.sit)
+        o.sit = !!q.sit; o.c = !!q.c; if (q.sit) taken.add(q.sit)
         if (q.en !== undefined && q.en !== o.en) { if (o.en !== undefined && q.e) o.v?.emote(q.e); o.en = q.en } // gesto novo
       }
       state.takenSeats = taken
@@ -56,16 +56,16 @@ export function connectNet(scene: THREE.Scene) {
   }
   open()
   return {
-    update(dt: number, p: { x: number; y: number; z: number; yaw: number }) {
+    update(dt: number, p: { x: number; y: number; z: number; yaw: number; crouch?: number }) {
       // avatar do próprio jogador (invisível; o espelho liga ele só na hora de desenhar o reflexo)
       if (!selfV && visitorReady()) { selfV = createVisitor(); if (selfV) { selfG = new THREE.Group(); selfG.add(selfV.object); selfG.visible = false; scene.add(selfG); state.avatar = selfG } }
       if (selfV && selfG) {
         selfSpeed += (Math.hypot(p.x - lastX, p.z - lastZ) / Math.max(dt, 1e-3) - selfSpeed) * Math.min(1, dt * 8); lastX = p.x; lastZ = p.z
         selfG.position.set(p.x, p.y, p.z); selfG.rotation.y = p.yaw
         if (state.myEmote.n !== seenEmote) { seenEmote = state.myEmote.n; selfV.emote(state.myEmote.id) } // seu gesto aparece no espelho
-        selfV.update(dt, performance.now() / 1000, selfSpeed > 0.15 && selfSpeed < 8 ? selfSpeed : 0, !!state.seat)
+        selfV.update(dt, performance.now() / 1000, selfSpeed > 0.15 && selfSpeed < 8 ? selfSpeed : 0, !!state.seat, (p.crouch ?? 0) > 0.5)
       }
-      if (ws?.readyState === 1 && (sendT += dt) > 0.066) { sendT = 0; ws.send(JSON.stringify({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, name, sit: state.seat?.key ?? '', e: state.myEmote.id, en: state.myEmote.n })) }
+      if (ws?.readyState === 1 && (sendT += dt) > 0.066) { sendT = 0; ws.send(JSON.stringify({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, name, sit: state.seat?.key ?? '', e: state.myEmote.id, en: state.myEmote.n, c: (p.crouch ?? 0) > 0.5 })) }
       for (const o of others.values()) { // suaviza entre as mensagens
         const k = Math.min(1, dt * 12), px = o.g.position.x, pz = o.g.position.z
         o.g.position.x += (o.x - px) * k; o.g.position.z += (o.z - pz) * k; o.g.position.y += (o.y - o.g.position.y) * k; o.g.rotation.y += (o.yaw - o.g.rotation.y) * k
@@ -74,7 +74,7 @@ export function connectNet(scene: THREE.Scene) {
           const v = createVisitor()
           if (v) { o.parts.forEach((m) => o.g.remove(m)); o.g.scale.setScalar(1); o.g.add(v.object, nameTag(o.name, HEIGHT + 0.3)); o.v = v }
         }
-        o.v?.update(dt, performance.now() / 1000, o.speed > 0.15 ? o.speed : 0, !!o.sit)
+        o.v?.update(dt, performance.now() / 1000, o.speed > 0.15 ? o.speed : 0, !!o.sit, !!o.c)
       }
     },
   }

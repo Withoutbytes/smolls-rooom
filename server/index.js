@@ -27,6 +27,7 @@ wss.on('connection', (ws) => {
       p.sit = /^[\d.]+_[\d.]+$/.test(String(m.sit ?? '')) ? String(m.sit).slice(0, 16) : '' // assento ocupado (chave x_z) ou vazio
       p.e = ['acenar', 'aplaudir', 'dancar', 'rir', 'apontar'].includes(m.e) ? m.e : ''
       p.en = num(m.en, 0, 1e9, p.en ?? 0)                                       // contador de gestos
+      p.c = m.c ? 1 : 0                                                          // agachado (Shift)
     } catch { /* mensagem inválida: ignora */ }
   })
   ws.on('close', () => players.delete(id))

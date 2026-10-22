@@ -122,6 +122,7 @@ Mira no objeto → `[E] ação`. Armários e guarda-roupa abrem, geladeiras (+be
 - Estados: `digitando → notou_jogador → virou → conversando → volta_digitando`.
 - Interações (tecla `E` olhando pra ele): conversar (menu de falas), pedir café, mostrar a tela do PC, chamar pra jogar, irritar (ele reclama "tô codando!"). Cada fala é uma linha em `dialogos.json`.
 - **Poses na cama** (`BedPose` em `src/smollAnim.ts`, comando `state.cmd('pose:<nome>')`): `normal`, `spread` (perna aberta), `legsUp` (pernas pra cima), `scissors` (tesoura), `bridge` (ponte), `quatro` (de quatro — usa o `roll` novo do rig em `src/rig.ts` pra girar o corpo em torno da própria espinha), `curl` (fetal). Menu do Smoll → "🛏️ Poses na cama"; se ele ainda tá no PC, ele vai até a cama antes de fazer. Também dá pra chamar pelo código do PC: `smoll.pose("spread")`. Para ver as poses isoladas: `tools/pose-preview.html?pose=spread`.
+- **Thumbnails das ações** (`public/img/act/<nome>.png`): cada opção do menu de diálogo mostra uma miniatura do Smoll fazendo a ação. Geradas de verdade, renderando o modelo rigged: `tools/act-icons.html` (grade 8×128px, fundo magenta) + `tools/act-icons.py` (recorta a print da grade e transforma o magenta em transparente). A lista de ações está em `tools/act-icons.json`; as poses vêm de `bedPose()`/`clipPose()` (exportado em `src/smollAnim.ts`). Para regenerar: abrir a página, print da tela, `python tools/act-icons.py <print>`.
 
 ## 6. Fases
 

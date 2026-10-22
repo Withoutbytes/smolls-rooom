@@ -188,7 +188,7 @@ loadInventory()
 ceilings.push(...props.roofs) // telhados também somem na vista do mapa
 
 // jogador
-const p = { x: 15.5, y: 0, z: 8.5, yaw: Math.PI, pitch: 0 }
+const p = { x: 15.5, y: 0, z: 8.5, yaw: Math.PI, pitch: 0, crouch: 0 } // crouch: 0 em pé → 1 agachado (Shift); vai pra rede e pro avatar
 ;(window as any).__p = p // debug: teleporta no console
 ;(window as any).__clock = clock // debug: muda a hora do jogo
 ;(window as any).__state = state // debug: estado compartilhado
@@ -319,7 +319,9 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.05); last = now
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
   const f = lock * (+keys.has('KeyW') - +keys.has('KeyS')), s = lock * (+keys.has('KeyD') - +keys.has('KeyA'))
-  const sp = (keys.has('ShiftLeft') ? 3.2 : 1.8) * state.speed * dt // passos menores combinam com o corpo menor
+  const wantCrouch = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !drv && !state.seat && !!lock
+  p.crouch += ((wantCrouch ? 1 : 0) - p.crouch) * Math.min(1, dt * 10)
+  const sp = (keys.has('KeyR') ? 3.2 : 1.8 - 0.9 * p.crouch) * state.speed * dt // R corre, Shift agacha (anda devagar); passos menores combinam com o corpo menor
   const dx = (-Math.sin(p.yaw) * f + Math.cos(p.yaw) * s) * sp
   const dz = (-Math.cos(p.yaw) * f - Math.sin(p.yaw) * s) * sp
   const moving = f !== 0 || s !== 0
@@ -347,7 +349,7 @@ renderer.setAnimationLoop((now) => {
   else if (state.seat) { // sentado: preso no assento, câmera baixa, vira pra frente do móvel na primeira vez
     const s = state.seat; if (seatApplied !== s) { seatApplied = s; p.yaw = s.yaw; p.pitch = 0 }
     p.x = s.x; p.z = s.z; p.y = s.y - 0.32; vy = 0; camera.position.set(s.x, s.y + 0.6, s.z)
-  } else camera.position.set(p.x, p.y + state.eye, p.z)
+  } else camera.position.set(p.x, p.y + state.eye * (1 - 0.42 * p.crouch), p.z) // agachado: olhos 42% mais baixos
   camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ')
   sky.position.set(p.x, 0, p.z); dirt.position.set(p.x, -0.02, p.z) // céu e chão acompanham o jogador: o mundo agora tem mais de 300 m
   props.update(dt, p.x, p.z, mapMode)

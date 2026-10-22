@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>thumbnails das ações do Smoll</title>
+<style>
+  html, body { margin: 0; background: transparent }
+  canvas { display: block }
+  #log { position: fixed; left: 0; bottom: 0; color: #8f8; font: 11px monospace }
+</style>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { buildRig } from '/src/rig.ts'
+import { bedPose, POSES, clipPose } from '/src/smollAnim.ts'
+
+// gera uma grade CELLxCELL de thumbnails de cada ação listada em tools/act-icons.json.
+// depois: python tools/act-icons.py corta a grade em public/img/act/<name>.png
+const CELL = 128, COLS = 8
+const acts = await (await fetch('/tools/act-icons.json')).json()
+const ROWS = Math.ceil(acts.length / COLS), W = COLS * CELL, H = ROWS * CELL
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+renderer.setSize(W, H); renderer.setPixelRatio(1)
+
+const gltf = await new GLTFLoader().loadAsync('/models/smoll_real_hq.glb')
+let src
+gltf.scene.traverse((o) => { if (!src && o.isMesh) src = o })
+src.geometry.computeVertexNormals()
+const smat = Array.isArray(src.material) ? src.material[0] : src.material
+const mat = new THREE.MeshLambertMaterial({ map: smat.map })
+const rig = buildRig(src.geometry, mat)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0xff00ff) // chave de cor: tools/act-icons.py transforma em transparente
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2b2b2b, 1.15))
+const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(2, 5, 6); scene.add(key)
+const fill = new THREE.DirectionalLight(0xffffff, 0.5); fill.position.set(-4, 2, -3); scene.add(fill)
+
+// o mesmo transform do jogo (smoll.ts): grupo girado 90° em z pra deitar, holder girado em y
+const S = 1.75 / 1.99
+const M = new THREE.Group(); M.position.set(0, 0.84, 0); M.rotation.set(0, 0, Math.PI / 2)
+const holder = new THREE.Group(); holder.rotation.y = Math.PI / 2; M.add(holder)
+const mw = new THREE.Group(); mw.scale.setScalar(S); mw.position.y = 0.999 * S; mw.add(rig.mesh); holder.add(mw)
+scene.add(M)
+const bed = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.3, 1.8), new THREE.MeshLambertMaterial({ color: 0x3d5a80 }))
+bed.position.set(-0.88, 0.5, 0); scene.add(bed)
+
+const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
+const out = document.createElement('canvas'); out.width = W; out.height = H
+const g = out.getContext('2d')
+const badges = []
+
+for (let i = 0; i < acts.length; i++) {
+  const a = acts[i]
+  // em pé/sentado o grupo não gira; deitado é o mesmo transform do jogo (90° em z)
+  if (a.kind === 'bed') {
+    rig.apply(bedPose(1, 1, a.pose)); bed.visible = true
+    M.position.set(0, 0.84, 0); M.rotation.set(0, 0, Math.PI / 2)
+  } else {
+    rig.apply(a.kind === 'stand' ? POSES.stand : a.kind === 'sit' ? POSES.sit : clipPose(a.clip, a.t, true))
+    bed.visible = false
+    M.position.set(0, 0, 0); M.rotation.set(0, 0, 0)
+  }
+  scene.updateMatrixWorld(true)
+
+  // enquadra só o corpo; a cama aparece de contexto, fora do frame
+  const bb = new THREE.Box3().setFromObject(M)
+  const c = bb.getCenter(new THREE.Vector3()), s = bb.getSize(new THREE.Vector3())
+  const fov = (45 * Math.PI) / 180
+  const dist = (Math.max(s.x, s.y, s.z) / 2) / Math.tan(fov / 2) * 1.22
+  // deitado a cabeça fica pra -x e o corpo de lado: câmera lateral. em pé a frente do modelo é +x,
+  // então um 3/4 mais fechado (0.6,0.45,1): se a câmera fica muito de frente, o braço que aponta
+  // pro +x encurta e o gesto desaparece
+  const dir = new THREE.Vector3(a.kind === 'bed' ? 0.1 : 0.6, a.kind === 'bed' ? 0.5 : 0.45, 1).normalize()
+  cam.position.copy(c).add(dir.multiplyScalar(dist)); cam.lookAt(c)
+
+  const x = (i % COLS) * CELL, yTop = Math.floor(i / COLS) * CELL
+  renderer.setScissorTest(true)
+  renderer.setViewport(x, H - yTop - CELL, CELL, CELL) // WebGL tem origem embaixo
+  renderer.setScissor(x, H - yTop - CELL, CELL, CELL)
+  renderer.render(scene, cam)
+  badges.push([x, yTop, a.emoji])
+}
+
+g.drawImage(renderer.domElement, 0, 0)
+for (const [x, yTop, e] of badges) {
+  if (!e) continue
+  g.font = '34px "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
+  g.textBaseline = 'bottom'
+  g.fillText(e, x + CELL - 40, yTop + CELL - 4)
+}
+document.body.appendChild(out)
+document.title = acts.map((a) => a.name).join(' ')
+</script>
+</body>
+</html>

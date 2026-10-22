@@ -27,7 +27,7 @@ export function updateInteract(scene: THREE.Scene, camera: THREE.Camera) {
 }
 
 // ---------- diálogo com o Smoll ----------
-type Opt = { t: string; go?: () => Node; fn?: () => void }
+type Opt = { t: string; i?: string; go?: () => Node; fn?: () => void } // i = nome da thumbnail em public/img/act (tools/act-icons.html)
 type Node = { say: string; code?: string; opts: Opt[] }
 
 const timed = (ms: number, apply: () => void) => { apply(); state.until = performance.now() + ms }
@@ -35,19 +35,19 @@ const cmd = (c: string) => state.cmd(c)
 const root = (): Node => ({
   say: pick(['Fala, mano. Tô debugando um negócio que só quebra em produção.', 'Opa. Não mexe na minha cadeira, por favor.', 'Um minuto, tô compilando. Mentira, tô no YouTube.']),
   opts: [
-    { t: 'O que você tá fazendo?', fn: () => { cmd('point'); show({ say: pick(['Refatorando o que eu mesmo escrevi ontem. Não recomendo.', 'Esse bug tem mais camadas que cebola. Já chorei duas vezes.', 'Tô fazendo um jogo. Sobre mim. Em primeira pessoa. Pensa na ironia.']), opts: [back] }) } },
-    { t: 'Me passa um código aí', go: codes },
-    { t: 'Faz um bypass pra mim', go: bypass },
-    { t: state.smollStanding ? 'Senta de volta' : 'Levanta aí', fn: () => { const up = cmd('stand'); show({ say: up ? 'Levantando. Minha coluna agradece.' : 'Voltando pro PC. O bug não vai se resolver sozinho.', opts: [back] }) } },
-    { t: state.smollShorts ? 'Troca a bermuda por uma calça' : 'Troca a calça por uma bermuda', fn: () => { const to = cmd('shorts'); show({ say: to ? 'Tá calor mesmo. Fecha o olho aí que eu vou trocar. Já volto.' : 'Vou botar a calça. Deixa eu ir ali.', opts: [back] }) } },
-    { t: state.smollRed ? 'Manda ele se vestir' : 'Pede pra ele ficar de calcinha vermelha', fn: () => { const to = cmd('red'); show({ say: to ? 'Quê?! Tá bom… mas ninguém tira foto.' : 'Obrigado. Eu também tava com vergonha.', opts: [back] }) } },
-    { t: 'Pede pra ele fazer algo…', go: tasks },
-    { t: '🛏️ Poses na cama', go: poses },
-    { t: 'Faz uma dancinha', fn: () => { cmd('dance'); show({ say: 'Bora! Ninguém filma, por favor.', opts: [back] }) } },
-    { t: 'Conta uma piada', fn: () => { cmd('laugh'); show({ say: pick(['Por que o programador confunde Halloween com Natal? Porque 31 OCT = 25 DEC.', 'São dois bugs num bar. O terceiro é o barman: não reproduz.', 'Funciona na minha máquina. Vamos enviar a minha máquina então.']), opts: [back] }) } },
-    { t: 'Pede um café pra mim', fn: () => { cmd('sip'); state.drinks++; show({ say: `Peguei dois. Um pra mim e um pra você. Tá na sua conta. (+1 bebida 🥤 ${state.drinks})`, opts: [back] }) } },
-    { t: 'Manda o Smoll dormir', fn: () => { const ok = cmd('sleep') !== false; show({ say: ok ? 'Ah, finalmente. Só cinco minutinhos... Zzz.' : 'Agora não, tô no meio de uma coisa.', opts: [back] }) } },
-    { t: 'Tchau', fn: () => { cmd('wave'); closeDialog(); toast('Smoll: Até mais! Não esquece de fechar o portão.') } },
+    { t: 'O que você tá fazendo?', i: 'gest-point', fn: () => { cmd('point'); show({ say: pick(['Refatorando o que eu mesmo escrevi ontem. Não recomendo.', 'Esse bug tem mais camadas que cebola. Já chorei duas vezes.', 'Tô fazendo um jogo. Sobre mim. Em primeira pessoa. Pensa na ironia.']), opts: [back] }) } },
+    { t: 'Me passa um código aí', i: 'codes', go: codes },
+    { t: 'Faz um bypass pra mim', i: 'bypass', go: bypass },
+    { t: state.smollStanding ? 'Senta de volta' : 'Levanta aí', i: state.smollStanding ? 'sit' : 'stand', fn: () => { const up = cmd('stand'); show({ say: up ? 'Levantando. Minha coluna agradece.' : 'Voltando pro PC. O bug não vai se resolver sozinho.', opts: [back] }) } },
+    { t: state.smollShorts ? 'Troca a bermuda por uma calça' : 'Troca a calça por uma bermuda', i: 'roupa', fn: () => { const to = cmd('shorts'); show({ say: to ? 'Tá calor mesmo. Fecha o olho aí que eu vou trocar. Já volto.' : 'Vou botar a calça. Deixa eu ir ali.', opts: [back] }) } },
+    { t: state.smollRed ? 'Manda ele se vestir' : 'Pede pra ele ficar de calcinha vermelha', i: 'roupa', fn: () => { const to = cmd('red'); show({ say: to ? 'Quê?! Tá bom… mas ninguém tira foto.' : 'Obrigado. Eu também tava com vergonha.', opts: [back] }) } },
+    { t: 'Pede pra ele fazer algo…', i: 'gest-thumbs', go: tasks },
+    { t: '🛏️ Poses na cama', i: 'pose-normal', go: poses },
+    { t: 'Faz uma dancinha', i: 'gest-dance', fn: () => { cmd('dance'); show({ say: 'Bora! Ninguém filma, por favor.', opts: [back] }) } },
+    { t: 'Conta uma piada', i: 'gest-laugh', fn: () => { cmd('laugh'); show({ say: pick(['Por que o programador confunde Halloween com Natal? Porque 31 OCT = 25 DEC.', 'São dois bugs num bar. O terceiro é o barman: não reproduz.', 'Funciona na minha máquina. Vamos enviar a minha máquina então.']), opts: [back] }) } },
+    { t: 'Pede um café pra mim', i: 'gest-sip', fn: () => { cmd('sip'); state.drinks++; show({ say: `Peguei dois. Um pra mim e um pra você. Tá na sua conta. (+1 bebida 🥤 ${state.drinks})`, opts: [back] }) } },
+    { t: 'Manda o Smoll dormir', i: 'sleep', fn: () => { const ok = cmd('sleep') !== false; show({ say: ok ? 'Ah, finalmente. Só cinco minutinhos... Zzz.' : 'Agora não, tô no meio de uma coisa.', opts: [back] }) } },
+    { t: 'Tchau', i: 'gest-wave', fn: () => { cmd('wave'); closeDialog(); toast('Smoll: Até mais! Não esquece de fechar o portão.') } },
   ],
 })
 const back: Opt = { t: 'Voltar', go: root }
@@ -57,25 +57,25 @@ const tasks = (): Node => {
   return {
     say: 'Pedido especial? Cobro em Kuat.',
     opts: [
-      { t: '📺 Liga/desliga a TV', fn: ask('task:tv', ['Já vou lá. Não muda de canal!', 'Tá, tá, vou levantar.']) },
-      { t: '💡 Acende/apaga a luz da sala', fn: ask('task:luz', ['Já vou. Economia de energia, né.', 'Sempre sobra pra mim.']) },
-      { t: '🌀 Liga/desliga o ventilador do quarto', fn: ask('task:vent', ['Calor mesmo. Vou lá.', 'Ventilador, o melhor amigo do dev.']) },
-      { t: '🥤 Pega uma Kuat pra ele', fn: ask('task:kuat', ['Boa ideia, tô com sede.', 'Já volto com a Kuat.']) },
-      { t: '🥤 Traz uma Kuat pra mim', fn: ask('task:kuat-voce', ['Tá, vou buscar. Fica aí.', 'Garçom Smoll a caminho.']) },
-      { t: '🛋️ Vem assistir TV comigo', fn: ask('task:assistir', ['Bora! Mas eu escolho o filme.', 'Já vou. Separa um lugar pra mim.']) },
-      { t: '☕ Faz um café', fn: ask('task:cafe', ['Café, a melhor invenção.', 'Vou passar um agora.']) },
-      { t: '🍜 Cozinha alguma coisa', fn: ask('task:cozinhar', ['Miojo de novo? Tá bom.', 'Vou lá no fogão.']) },
-      { t: '🧽 Lava a louça', fn: ask('task:louca', ['Eu lavo… mas depois.', 'A pilha tá virando monumento.']) },
-      { t: '🍛 Almoça de verdade (prato e talher)', fn: ask('task:almocar', ['Prato, garfo e faca. Até parece gente.', 'Almoço sentado? Que luxo.']) },
-      { t: '🛍️ Guarda a compra na geladeira', fn: ask('task:guardar', ['Vou guardar. O leite fica na frente.', 'Já vou, mas quem pagou foi você.']) },
-      { t: '🍽️ Vai comer', fn: ask('task:comer', ['Tô morrendo de fome.', 'Almoço!']) },
-      { t: '🎸 Toca violão', fn: ask('task:violao', ['Vou tocar a única música que eu sei.', 'Preparando o show…']) },
-      { t: '🚿 Vai tomar banho', fn: ask('task:banho', ['Tô precisando mesmo.', 'Vou lá. Não olha o histórico.']) },
-      { t: '🎮 Joga videogame comigo', fn: ask('task:jogar', ['Bora! Mas o controle bom é o meu.', 'Vou ganhar de você no jogo da velha.']) },
-      { t: '🔧 Conserta o ventilador da oficina', fn: ask('task:consertar', ['É só apertar um parafuso. Tá, achar a chave é o difícil.', 'Já vou com a chave de fenda.']) },
-      { t: '🌱 Rega a horta', fn: ask('task:regar', ['Vou lá. O sol de Rondônia não perdoa.', 'Eu rego, mas quem colhe é você.']) },
-      { t: '🍖 Faz um churrasco', fn: ask('task:churrasco', ['Churrasco! Já separo a picanha.', 'Deixa o carvão comigo.']) },
-      { t: '🎸 Toca violão na varanda', fn: ask('task:violaovaranda', ['Vou tocar na varanda, o som fica melhor.', 'A mesma música de sempre, mas ao vivo.']) },
+      { t: '📺 Liga/desliga a TV', i: 'task-tv', fn: ask('task:tv', ['Já vou lá. Não muda de canal!', 'Tá, tá, vou levantar.']) },
+      { t: '💡 Acende/apaga a luz da sala', i: 'task-luz', fn: ask('task:luz', ['Já vou. Economia de energia, né.', 'Sempre sobra pra mim.']) },
+      { t: '🌀 Liga/desliga o ventilador do quarto', i: 'task-vent', fn: ask('task:vent', ['Calor mesmo. Vou lá.', 'Ventilador, o melhor amigo do dev.']) },
+      { t: '🥤 Pega uma Kuat pra ele', i: 'task-kuat', fn: ask('task:kuat', ['Boa ideia, tô com sede.', 'Já volto com a Kuat.']) },
+      { t: '🥤 Traz uma Kuat pra mim', i: 'task-kuat-voce', fn: ask('task:kuat-voce', ['Tá, vou buscar. Fica aí.', 'Garçom Smoll a caminho.']) },
+      { t: '🛋️ Vem assistir TV comigo', i: 'task-assistir', fn: ask('task:assistir', ['Bora! Mas eu escolho o filme.', 'Já vou. Separa um lugar pra mim.']) },
+      { t: '☕ Faz um café', i: 'task-cafe', fn: ask('task:cafe', ['Café, a melhor invenção.', 'Vou passar um agora.']) },
+      { t: '🍜 Cozinha alguma coisa', i: 'task-cozinhar', fn: ask('task:cozinhar', ['Miojo de novo? Tá bom.', 'Vou lá no fogão.']) },
+      { t: '🧽 Lava a louça', i: 'task-louca', fn: ask('task:louca', ['Eu lavo… mas depois.', 'A pilha tá virando monumento.']) },
+      { t: '🍛 Almoça de verdade (prato e talher)', i: 'task-almocar', fn: ask('task:almocar', ['Prato, garfo e faca. Até parece gente.', 'Almoço sentado? Que luxo.']) },
+      { t: '🛍️ Guarda a compra na geladeira', i: 'task-guardar', fn: ask('task:guardar', ['Vou guardar. O leite fica na frente.', 'Já vou, mas quem pagou foi você.']) },
+      { t: '🍽️ Vai comer', i: 'task-comer', fn: ask('task:comer', ['Tô morrendo de fome.', 'Almoço!']) },
+      { t: '🎸 Toca violão', i: 'task-violao', fn: ask('task:violao', ['Vou tocar a única música que eu sei.', 'Preparando o show…']) },
+      { t: '🚿 Vai tomar banho', i: 'task-banho', fn: ask('task:banho', ['Tô precisando mesmo.', 'Vou lá. Não olha o histórico.']) },
+      { t: '🎮 Joga videogame comigo', i: 'task-jogar', fn: ask('task:jogar', ['Bora! Mas o controle bom é o meu.', 'Vou ganhar de você no jogo da velha.']) },
+      { t: '🔧 Conserta o ventilador da oficina', i: 'task-consertar', fn: ask('task:consertar', ['É só apertar um parafuso. Tá, achar a chave é o difícil.', 'Já vou com a chave de fenda.']) },
+      { t: '🌱 Rega a horta', i: 'task-regar', fn: ask('task:regar', ['Vou lá. O sol de Rondônia não perdoa.', 'Eu rego, mas quem colhe é você.']) },
+      { t: '🍖 Faz um churrasco', i: 'task-churrasco', fn: ask('task:churrasco', ['Churrasco! Já separo a picanha.', 'Deixa o carvão comigo.']) },
+      { t: '🎸 Toca violão na varanda', i: 'task-violaovaranda', fn: ask('task:violaovaranda', ['Vou tocar na varanda, o som fica melhor.', 'A mesma música de sempre, mas ao vivo.']) },
       back,
     ],
   }
@@ -84,14 +84,14 @@ const tasks = (): Node => {
 const poses = (): Node => ({
   say: 'Na cama? Ah, agora sim. Escolhe aí — mas não conta pra ninguém.',
   opts: [
-    { t: '😴 Deitado de costas', fn: ask('pose:normal', ['Costas, mãos na barriga. Dormir é minha especialidade.', 'Posição padrão. Nada de mais.']) },
-    { t: '🦴 Pernas abertas', fn: ask('pose:spread', ['Abertura total. É a pose do "tô disponível, mas não me apressa".', 'Vidinha de cama aberta. Não julga.']) },
-    { t: '🎯 Pernas pra cima', fn: ask('pose:legsUp', ['Pernas no ar. Dizem que faz bem pra circulação. Eu não digo nada.', 'Ficou parecendo um quadro, né? Era a ideia.']) },
-    { t: '✂️ Tesoura', fn: ask('pose:scissors', ['Uma perna no ar, outra na cama. Equilíbrio é relativo.', 'Tesoura. Não pergunta, só olha.']) },
-    { t: '🌉 Ponte', fn: ask('pose:bridge', ['Ponte. Minha coluna faz isso desde que eu era dev.', 'Subo a bacia e pronto. Engenharia de corpo.']) },
-    { t: '🐾 De quatro', fn: ask('pose:quatro', ['De quatro. Não é pose de cachorro, é pose de gente.', 'Mãos e joelhos. A coluna aprova, o orgulho não.']) },
-    { t: '👶 Fetal', fn: ask('pose:curl', ['Fetal. Todo mundo dorme assim, ninguém admite.', 'Recolhido. O colchão entende.']) },
-    { t: 'Levanta da cama', fn: () => { const up = cmd('wake'); show({ say: up ? 'Levantando. O bug não vai se resolver sozinho.' : 'Agora não, tô no PC.', opts: [back] }) } },
+    { t: '😴 Deitado de costas', i: 'pose-normal', fn: ask('pose:normal', ['Costas, mãos na barriga. Dormir é minha especialidade.', 'Posição padrão. Nada de mais.']) },
+    { t: '🦴 Pernas abertas', i: 'pose-spread', fn: ask('pose:spread', ['Abertura total. É a pose do "tô disponível, mas não me apressa".', 'Vidinha de cama aberta. Não julga.']) },
+    { t: '🎯 Pernas pra cima', i: 'pose-legsup', fn: ask('pose:legsUp', ['Pernas no ar. Dizem que faz bem pra circulação. Eu não digo nada.', 'Ficou parecendo um quadro, né? Era a ideia.']) },
+    { t: '✂️ Tesoura', i: 'pose-scissors', fn: ask('pose:scissors', ['Uma perna no ar, outra na cama. Equilíbrio é relativo.', 'Tesoura. Não pergunta, só olha.']) },
+    { t: '🌉 Ponte', i: 'pose-bridge', fn: ask('pose:bridge', ['Ponte. Minha coluna faz isso desde que eu era dev.', 'Subo a bacia e pronto. Engenharia de corpo.']) },
+    { t: '🐾 De quatro', i: 'pose-quatro', fn: ask('pose:quatro', ['De quatro. Não é pose de cachorro, é pose de gente.', 'Mãos e joelhos. A coluna aprova, o orgulho não.']) },
+    { t: '👶 Fetal', i: 'pose-curl', fn: ask('pose:curl', ['Fetal. Todo mundo dorme assim, ninguém admite.', 'Recolhido. O colchão entende.']) },
+    { t: 'Levanta da cama', i: 'stand', fn: () => { const up = cmd('wake'); show({ say: up ? 'Levantando. O bug não vai se resolver sozinho.' : 'Agora não, tô no PC.', opts: [back] }) } },
     back,
   ],
 })
@@ -125,7 +125,7 @@ function show(n: Node) {
   cur = n; dialog.open = true; document.exitPointerLock?.()
   $('dialog').style.display = 'block'
   $('dialog').innerHTML = `<b>Smoll</b><p>${n.say}</p>${n.code ? `<pre>${n.code}</pre>` : ''}<div class="opts">` +
-    n.opts.map((o, i) => `<button data-i="${i}">${o.t}</button>`).join('') + '</div>'
+    n.opts.map((o, i) => `<button data-i="${i}">${o.i ? `<img src="/img/act/${o.i}.png" alt="" aria-hidden="true">` : ''}${o.t}</button>`).join('') + '</div>'
 }
 export function openTalk() { show(root()) }
 export function closeDialog() {
