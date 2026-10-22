@@ -6,7 +6,8 @@ Tudo roda na máquina (RTX 5070 Ti, 16 GB). Nada de nuvem, nada de custo.
 
 | Arquivo | O que faz |
 |---|---|
-| `skin_red_pipeline.json` | Receita a foto da skin, tira o fundo, melhora o detalhe e salva em alta resolução |
+| `skin_red_faithful.json` | **Versão usada**: recorte Birefnet + fundo branco + upscale 4x, sem difusão (preserva o rosto) |
+| `skin_red_pipeline.json` | Versão antiga, com RealVisXL `denoise 0.35` — recria o rosto, não usar para a skin |
 | `skin_red_hunyuan3d.json` | Transforma a imagem limpa em um `.glb` de forma (Hunyuan3D 2.0) e reduz a malha |
 | `skin_red_trellis2.json` | Transforma a imagem limpa em um `.glb` texturizado (TRELLIS.2) |
 | `skin_red_front.json`, `skin_red_inpaint.json` | Tentativas anteriores (img2img / inpaint do corpo), deixadas como referência |
@@ -16,22 +17,25 @@ Tudo roda na máquina (RTX 5070 Ti, 16 GB). Nada de nuvem, nada de custo.
 1. Colocar a foto da skin em `tools/ref/` e copiar para a pasta de input do ComfyUI:
    `C:\Users\mutecb\AppData\Local\Comfy-Desktop\ComfyUI-Shared\input\`
 2. Abrir o JSON no ComfyUI e apertar **Run**. Ou, pela CLI:
-   `comfy run-template` não serve aqui — use `comfy run --workflow tools/comfy/skin_red_pipeline.json` (ou abra o arquivo na interface).
+   `comfy run-template` não serve aqui — use `comfy run --workflow tools/comfy/skin_red_faithful.json` (ou abra o arquivo na interface).
 
-## O que o `skin_red_pipeline.json` faz, passo a passo
+## O que o `skin_red_faithful.json` faz, passo a passo
 
 1. **LoadImage** — a foto da skin.
 2. **RemoveBackground (Birefnet)** — pega a silhueta do corpo como máscara.
-3. **InvertMask → MaskToImage → ImageCompositeMasked** — cola o personagem sobre fundo branco puro. Não usa difusão para o fundo, então o rosto e a roupa não mudam.
-4. **ImageScale 640x1536** — tamanho que o SDXL trabalha bem.
-5. **KSampler denoise 0.35** (RealVisXL V5.0) — só uma passada de detalhe: pele, tecido, costuras. A pose e o rosto ficam iguais.
-6. **4x-UltraSharp** → **ImageScale 1024x2368** — upscale real, não stretch.
-7. Salva dois PNGs: `smoll_skin_red_clean` (640x1472, entrada do 3D) e `smoll_skin_red_hi` (1024x2368, sprite).
+3. **InvertMask → MaskToImage → ImageCompositeMasked** — cola o personagem sobre fundo branco puro. Sem difusão, o rosto e a roupa continuam os pixels originais.
+4. **4x-UltraSharp** (`ImageUpscaleWithModel`) — upscale real, não stretch: 1520x3512.
+5. **ImageScale lanczos 640x1472** — versão menor para projetar cor sobre a malha.
+6. **MaskToImage** da máscara do corpo → `smoll_skin_red_mask` (380x878), que serve de alpha exato.
 
-Para o sprite transparente do jogo, `tools/gen_assets.py` já tem a função `key_white()` que transforma o fundo branco em transparente e recorta no objeto:
+Salva três PNGs: `smoll_skin_red_faithful` (1520x3512), `smoll_skin_red_faithful_640` (640x1472) e `smoll_skin_red_mask`.
+
+O `skin_red_pipeline.json` antigo tem um **KSampler denoise 0.35** (RealVisXL V5.0) que recria o rosto — outro personagem, outro tipo de cara. Não use para a skin.
+
+Para o sprite transparente, `key_white()` do `gen_assets.py` deixa um halo branco: o flood-fill parte dos cantos e não atravessa a borda escura do recorte. Use a máscara do Birefnet como alpha:
 
 ```
-python -c "import sys; sys.path.insert(0,'tools'); from gen_assets import key_white; key_white('tools/raw/smoll_skin_red_raw.png','public/sprites/smoll_skin_red.png')"
+python -c "import sys; sys.path.insert(0,'tools'); from gen_assets import key_mask; key_mask('tools/raw/smoll_skin_red_faithful.png','tools/raw/smoll_skin_red_mask.png','public/sprites/smoll_skin_red.png')"
 ```
 
 ## O que o `skin_red_trellis2.json` faz

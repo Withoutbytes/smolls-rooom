@@ -93,6 +93,16 @@ def key_white(src, dest):
     a.save(dest)
 
 
+def key_mask(src, mask_path, dest):
+    """Recorte exato pela silhueta do Birefnet (sem o halo branco do flood-fill)."""
+    im = Image.open(src).convert('RGB')
+    mask = Image.open(mask_path).convert('L').resize(im.size, Image.LANCZOS)
+    a = im.convert('RGBA')
+    a.putalpha(mask)
+    a = a.crop(a.getchannel('A').getbbox())
+    a.save(dest)
+
+
 def run(name):
     dest = os.path.join(OUT, f'{name}.png')
     raw = os.path.join(RAW, f'{name}_raw.png')

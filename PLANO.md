@@ -89,21 +89,22 @@ Referência pronta: `tools/raw/smoll_real_raw.png` (corpo inteiro, A-pose, fundo
 
 Depois do GLB: carregar com `GLTFLoader` no lugar do Smoll de primitivas, normalizar a altura (~1,75 m), calcular normais se faltarem, e decidir a pose. O modelo sai em A-pose em pé; para ele sentado no PC, ou rodar um rig simples (como o `RIGS` do aethercore) ou usar o Smoll em pé como NPC que levanta da cadeira.
 
-## 4.3 Skin nova: cueca vermelha (ComfyUI local, sem Colab)
+## 4.3 Skin nova: cueca vermelha (2D local + 3D no Colab)
 
 O Smoll tem duas skins: a casual (moletom, `smoll_real`) e a de cueca vermelha (tanque vermelho, cueca, ligas e meias até o joelho), a partir de `tools/ref/smoll_skin_red.png`.
 
-Pipeline toda na máquina (RTX 5070 Ti), sem custo e sem Colab:
+Pipeline 2D na máquina (RTX 5070 Ti), 3D de qualidade no Colab:
 
-1. **Limpar a foto** — `tools/comfy/skin_red_pipeline.json`: Birefnet recorta o corpo, o personagem é colado sobre fundo branco puro (sem difusão, o rosto e a roupa não mudam), uma passada de RealVisXL V5.0 com `denoise 0.35` só adiciona detalhe, e `4x-UltraSharp` faz o upscale real.
-   - Saída: `tools/raw/smoll_skin_red_raw.png` (1024x2368) e `tools/raw/smoll_skin_red_640.png` (640x1472, entrada do 3D).
-2. **Sprite do jogo** — `key_white()` do `gen_assets.py` transforma o fundo branco em transparente e recorta: `public/sprites/smoll_skin_red.png` (700x2238 RGBA).
-3. **3D** — `tools/comfy/skin_red_hunyuan3d.json` usa o Hunyuan3D 2.0 do ComfyUI (`hunyuan3d-dit-v2_fp16.safetensors`, `octree_resolution 512`) e `DecimateMesh` (QEM, 30 mil faces) para ficar leve: `public/models/smoll_skin_red_hunyuan.glb` (14.829 vértices, 29.564 triângulos, 700 KB).
-   - **Entrada quadrada obrigatória**: o `CLIPVisionEncode` faz `crop: center`, então um retrato 640x1472 recorta só o tronco e o corpo sai deformado. `tools/3d/square_input.py` centraliza o personagem num quadrado 1024x1024 (`tools/raw/smoll_skin_red_sq.png`) antes de gerar.
-   - Os nós Hunyuan3D do ComfyUI base são **só de forma** (malha cinza, sem textura). `tools/3d/paint_from_photo.py` projeta `tools/raw/smoll_skin_red_640.png` sobre a malha (alinhado pela altura e pela silhueta; as laterais e o traseiro pegam a cor da borda da silhueta) e escreve `COLOR_0` no GLB.
+1. **Limpar a foto** — `tools/comfy/skin_red_faithful.json`: Birefnet recorta o corpo, o personagem é colado sobre fundo branco puro e `4x-UltraSharp` faz o upscale real. **Sem difusão**: uma passada de RealVisXL com `denoise 0.35` (`skin_red_pipeline.json`) recriava o rosto e dava outro personagem — por isso a versão final não usa KSampler.
+   - Saída: `tools/raw/smoll_skin_red_faithful.png` (1520x3512) e `tools/raw/smoll_skin_red_faithful_640.png` (640x1472). O arquivo `tools/raw/smoll_skin_red_raw.png` é o fiel, que é o que vai para o Colab.
+2. **Sprite do jogo** — `key_white()` do `gen_assets.py` transforma o fundo branco em transparente e recorta: `public/sprites/smoll_skin_red.png` (1039x3318 RGBA).
+3. **3D de protótipo (local)** — `tools/comfy/skin_red_hunyuan3d.json` usa o Hunyuan3D 2.0 do ComfyUI (`hunyuan3d-dit-v2_fp16.safetensors`, `octree_resolution 512`) e `DecimateMesh` (QEM, 30 mil faces): `public/models/smoll_skin_red_hunyuan.glb` (14.829 vértices, 29.564 triângulos, 700 KB).
+   - **Entrada quadrada obrigatória**: o `CLIPVisionEncode` faz `crop: center`, então um retrato 640x1472 recorta só o tronco e o corpo sai deformado. `tools/3d/square_input.py` centraliza o personagem num quadrado 1024x1024 (`tools/raw/smoll_skin_red_sq.png`).
+   - Os nós Hunyuan3D do ComfyUI base são **só de forma** (malha cinza, sem textura). `tools/3d/paint_from_photo.py` projeta a foto sobre a malha (alinhado pela altura e pela silhueta; as laterais e o traseiro pegam a cor da borda da silhueta) e escreve `COLOR_0` no GLB.
 4. **Ver no navegador** — `viewer.html` (raiz do projeto, servido pelo Vite em `/viewer.html`) alterna Hunyuan3D / TRELLIS.2 / modelo do moletom, com girar, arame e vista de lado.
+5. **3D final (Colab A100)** — `tools/3d/run_hq.py` + `tools/raw/smoll_skin_red_raw.png` no `/content`, e `python -u run_hq.py smoll_skin_red`. Dá forma 2.1 com octree 512, 50 passos, e textura PBR multiview (Real-ESRGAN) → `smoll_skin_red_hq.glb`.
 
-Limitação local: o Hunyuan3D do ComfyUI não tem a etapa de textura (multiview + Real-ESRGAN) nem UV, então a cor é uma projeção da foto — serve para protótipo. O Hunyuan3D-2.1 do Colab (`tools/3d/run_hq.py`) continua sendo o caminho para a versão final (textura PBR, topologia melhor). Detalhes dos nós em `tools/comfy/README.md`.
+Por que não rodar o Hunyuan3D-2.1 local: o pack `visualbruno/ComfyUI-Hunyuan3d-2-1` exige compilar `custom_rasterizer` (CUDA) e `DifferentiableRenderer`, e o `torch` do ComfyUI Desktop não traz headers C++ (`torch/include` não existe) — a compilação falha em `'torch/extension.h': No such file or directory`. Os wheels pré-compilados do pack são cp310–cp312 e a venv do Desktop é Python 3.13. Além disso, a etapa de textura pede ~21 GB de VRAM. Detalhes dos nós em `tools/comfy/README.md`.
 
 ## 4.4 Interações implementadas (`src/interact.ts`)
 

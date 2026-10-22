@@ -7,6 +7,8 @@ A foto e uma vista frontal, entao:
   e pelo centro do personagem, nao pela caixa da imagem);
 - as laterais e a parte de tras ficam fora da silhueta na foto: a cor e pinçada da
   borda da silhueta naquela linha (o corpo veste ao redor, entao isso funciona);
+- o vao entre as pernas e entre braco e tronco tambem pega o pixel de corpo mais
+  proximo da linha, senão a malha sai com manchas brancas;
 - o tras recebe um sombreamento leve para dar profundidade.
 """
 import json
@@ -49,6 +51,34 @@ def silhouette(img):
     return left, right
 
 
+def nearest_body(img):
+    """Para cada (y, x), a coluna do pixel de corpo mais proximo na mesma linha.
+
+    Serve para os vortices que caem no vao entre as pernas ou entre braco e tronco:
+    la a foto e fundo branco, e sem isso a malha sai com manchas brancas.
+    """
+    w, h = img.size
+    px = img.load()
+    near = [None] * h
+    for y in range(h):
+        row = [None] * w
+        last = None
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r < WHITE or g < WHITE or b < WHITE:
+                last = x
+            row[x] = last
+        nxt = None
+        for x in range(w - 1, -1, -1):
+            r, g, b = px[x, y]
+            if r < WHITE or g < WHITE or b < WHITE:
+                nxt = x
+            if nxt is not None and (row[x] is None or abs(x - nxt) < abs(x - row[x])):
+                row[x] = nxt
+        near[y] = row
+    return near
+
+
 def main():
     if len(sys.argv) != 4:
         print(__doc__)
@@ -74,6 +104,7 @@ def main():
     img = Image.open(img_path).convert("RGB")
     w, h = img.size
     left, right = silhouette(img)
+    near = nearest_body(img)
     rows = [y for y in range(h) if left[y] is not None]
     sy0, sy1 = min(rows), max(rows)
     sx0, sx1 = min(left[y] for y in rows), max(right[y] for y in rows)
@@ -96,14 +127,19 @@ def main():
         py = min(h - 1, max(0, py))
         px = int(img_cx + (vx - cx) * scale)
         l, r = left[py], right[py]
-        if l is not None:
-            inset = min(8, max(1, (r - l) // 6))  # evita a borda anti-aliasada (quase branca)
-            if px < l:
-                px, outside = l + inset, outside + 1
-            elif px > r:
-                px, outside = r - inset, outside + 1
+        if l is not None and (px < l or px > r):
+            # fora da silhueta (ombros, quadril, parte de tras): pega o pixel de corpo
+            # mais proximo da mesma linha, em vez de um pixel qualquer da borda
+            col = near[py][px]
+            if col is not None:
+                px = col
+                outside += 1
         px = min(w - 1, max(0, px))
         c = getpixel((px, py))
+        if c[0] >= 200 and c[1] >= 200 and c[2] >= 200:
+            col = near[py][px]
+            if col is not None:
+                c = getpixel((col, py))
         # profundidade: o lado de tras fica um pouco mais escuro
         t = (vz - z_back) / max(1e-6, z_front - z_back)
         shade = 0.82 + 0.18 * min(1.0, max(0.0, t))

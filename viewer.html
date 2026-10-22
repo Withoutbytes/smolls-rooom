@@ -27,10 +27,11 @@
 <div class="wrap">
   <aside class="side">
     <h1>Skin: cueca vermelha</h1>
-    <div class="sub">Hunyuan3D 2.0 local → <code>public/models/smoll_skin_red_hunyuan.glb</code></div>
+    <div class="sub">Hunyuan3D 2.0 local → <code>public/models/smoll_skin_red_hunyuan.glb</code>. A versão final texturada vem do Colab: <code>public/models/smoll_skin_red_hq.glb</code>.</div>
     <img class="thumb" src="/sprites/smoll_skin_red.png" alt="sprite 2D da skin">
     <div class="btns">
       <button id="b-hunyuan" class="on">Hunyuan3D (novo)</button>
+      <button id="b-hq">HQ (Colab)</button>
       <button id="b-skin">Trellis2</button>
       <button id="b-real">Smoll moletom</button>
     </div>
@@ -104,7 +105,14 @@ function load(url) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.arrayBuffer();
     })
-    .then((buf) => new GLTFLoader().parseAsync(buf))
+    .then((buf) => {
+      const head = new Uint8Array(buf.slice(0, 4));
+      // "glTF" = 67 6c 54 46; HTML significa que o arquivo nao existe (o Vite devolve o index)
+      if (head[0] !== 0x67 || head[1] !== 0x6c || head[2] !== 0x54 || head[3] !== 0x46) {
+        throw new Error('nao existe ainda em public/models');
+      }
+      return new GLTFLoader().parseAsync(buf);
+    })
     .then((gltf) => {
       if (model) scene.remove(model);
       model = gltf.scene;
@@ -132,6 +140,7 @@ function swap(btn, url) {
 }
 
 document.getElementById('b-hunyuan').onclick = (e) => swap(e.target, '/models/smoll_skin_red_hunyuan.glb');
+document.getElementById('b-hq').onclick = (e) => swap(e.target, '/models/smoll_skin_red_hq.glb');
 document.getElementById('b-skin').onclick = (e) => swap(e.target, '/models/smoll_skin_red.glb');
 document.getElementById('b-real').onclick = (e) => swap(e.target, '/models/smoll_real_hq.glb');
 document.getElementById('spin').onchange = (e) => { spin = e.target.checked; };
@@ -167,6 +176,18 @@ window.addEventListener('resize', () => {
 });
 
 tick();
+// o GLB do Colab ainda nao foi gerado: deixa o botao desabilitado e explica por que
+fetch('/models/smoll_skin_red_hq.glb')
+  .then((r) => r.arrayBuffer())
+  .then((b) => {
+    const h = new Uint8Array(b.slice(0, 4));
+    if (h[0] === 0x67 && h[1] === 0x6c && h[2] === 0x54 && h[3] === 0x46) return;
+    const btn = document.getElementById('b-hq');
+    btn.disabled = true;
+    btn.textContent = 'HQ (Colab) — falta o arquivo';
+    err.textContent = 'smoll_skin_red_hq.glb ainda não foi gerado. Rode tools/3d/run_hq.py no Colab e salve o GLB em public/models/.';
+  })
+  .catch(() => {});
 load('/models/smoll_skin_red_hunyuan.glb');
 </script>
 </body>

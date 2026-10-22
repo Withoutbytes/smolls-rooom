@@ -1,8 +1,8 @@
 {
   "id": "smoll-skin-red-faithful",
   "revision": 0,
-  "last_node_id": 11,
-  "last_link_id": 15,
+  "last_node_id": 13,
+  "last_link_id": 18,
   "nodes": [
     {
       "id": 1,
@@ -14,10 +14,10 @@
       "mode": 0,
       "inputs": [],
       "outputs": [
-        { "name": "IMAGE", "type": "IMAGE", "links": [1, 6] },
-        { "name": "MASK", "type": "MASK", "links": null }
+        { "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [1, 6] },
+        { "name": "MASK", "type": "MASK", "slot_index": 1, "links": null }
       ],
-      "title": "Foto original do Smoll (sem difusão)",
+      "title": "Foto original do Smoll",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "LoadImage" },
       "widgets_values": ["smoll_skin_red.png", ""]
     },
@@ -30,7 +30,7 @@
       "order": 1,
       "mode": 0,
       "inputs": [],
-      "outputs": [{ "name": "bg_model", "type": "BACKGROUND_REMOVAL", "links": [2] }],
+      "outputs": [{ "name": "bg_model", "type": "BACKGROUND_REMOVAL", "slot_index": 0, "links": [2] }],
       "title": "Birefnet (silhueta do corpo)",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "LoadBackgroundRemovalModel" },
       "widgets_values": ["birefnet.safetensors"]
@@ -47,7 +47,7 @@
         { "name": "bg_removal_model", "type": "BACKGROUND_REMOVAL", "link": 2 },
         { "name": "image", "type": "IMAGE", "link": 1 }
       ],
-      "outputs": [{ "name": "mask", "type": "MASK", "links": [3, 4] }],
+      "outputs": [{ "name": "mask", "type": "MASK", "slot_index": 0, "links": [3, 4, 17] }],
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "RemoveBackground" },
       "widgets_values": []
     },
@@ -60,7 +60,7 @@
       "order": 3,
       "mode": 0,
       "inputs": [{ "name": "mask", "type": "MASK", "link": 3 }],
-      "outputs": [{ "name": "MASK", "type": "MASK", "links": [5] }],
+      "outputs": [{ "name": "MASK", "type": "MASK", "slot_index": 0, "links": [5] }],
       "title": "Fundo",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "InvertMask" },
       "widgets_values": []
@@ -74,7 +74,7 @@
       "order": 4,
       "mode": 0,
       "inputs": [{ "name": "mask", "type": "MASK", "link": 5 }],
-      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "links": [10] }],
+      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [10] }],
       "title": "Fundo branco puro",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "MaskToImage" },
       "widgets_values": []
@@ -92,7 +92,7 @@
         { "name": "source", "type": "IMAGE", "link": 6 },
         { "name": "mask", "type": "MASK", "link": 4 }
       ],
-      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "links": [11, 12] }],
+      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [11, 16] }],
       "title": "Personagem sobre fundo branco (pixels intactos)",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "ImageCompositeMasked" },
       "widgets_values": [0, 0, false]
@@ -106,7 +106,7 @@
       "order": 6,
       "mode": 0,
       "inputs": [],
-      "outputs": [{ "name": "UPSCALE_MODEL", "type": "UPSCALE_MODEL", "links": [13] }],
+      "outputs": [{ "name": "UPSCALE_MODEL", "type": "UPSCALE_MODEL", "slot_index": 0, "links": [13] }],
       "title": "4x-UltraSharp",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "UpscaleModelLoader" },
       "widgets_values": ["4x-UltraSharp.pth"]
@@ -123,7 +123,7 @@
         { "name": "upscale_model", "type": "UPSCALE_MODEL", "link": 13 },
         { "name": "image", "type": "IMAGE", "link": 11 }
       ],
-      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "links": [14] }],
+      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [14] }],
       "title": "Upscale real 4x (sem recriar a cara)",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "ImageUpscaleWithModel" },
       "widgets_values": []
@@ -132,7 +132,7 @@
       "id": 9,
       "type": "SaveImage",
       "pos": [1800, 600],
-      "size": [260, 120],
+      "size": [320, 260],
       "flags": {},
       "order": 8,
       "mode": 0,
@@ -140,7 +140,7 @@
       "outputs": [],
       "title": "smoll_skin_red_faithful (1520x3512)",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "SaveImage" },
-      "widgets_values": ["smoll_skin_red_faithful", ""]
+      "widgets_values": ["smoll_skin_red_faithful"]
     },
     {
       "id": 10,
@@ -150,8 +150,8 @@
       "flags": {},
       "order": 9,
       "mode": 0,
-      "inputs": [{ "name": "image", "type": "IMAGE", "link": 14 }],
-      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "links": [15] }],
+      "inputs": [{ "name": "image", "type": "IMAGE", "link": 16 }],
+      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [15] }],
       "title": "640x1472 (entrada do 3D)",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "ImageScale" },
       "widgets_values": ["lanczos", 640, 1472, "disabled"]
@@ -160,7 +160,7 @@
       "id": 11,
       "type": "SaveImage",
       "pos": [1800, 300],
-      "size": [260, 120],
+      "size": [320, 260],
       "flags": {},
       "order": 10,
       "mode": 0,
@@ -168,21 +168,52 @@
       "outputs": [],
       "title": "smoll_skin_red_faithful_640 (entrada do 3D)",
       "properties": { "cnr_id": "comfy-core", "Node name for S&R": "SaveImage" },
-      "widgets_values": ["smoll_skin_red_faithful_640", ""]
+      "widgets_values": ["smoll_skin_red_faithful_640"]
+    },
+    {
+      "id": 12,
+      "type": "MaskToImage",
+      "pos": [1200, 700],
+      "size": [200, 60],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [{ "name": "mask", "type": "MASK", "link": 17 }],
+      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [18] }],
+      "title": "Silhueta do corpo (alpha)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "MaskToImage" },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "SaveImage",
+      "pos": [1500, 700],
+      "size": [260, 200],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [{ "name": "images", "type": "IMAGE", "link": 18 }],
+      "outputs": [],
+      "title": "smoll_skin_red_mask (380x878)",
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "SaveImage" },
+      "widgets_values": ["smoll_skin_red_mask"]
     }
   ],
   "links": [
-    [1, 1, 0, 3, 1],
-    [2, 2, 0, 3, 0],
-    [3, 3, 0, 4, 0],
-    [4, 3, 0, 6, 2],
-    [5, 4, 0, 5, 0],
-    [6, 1, 0, 6, 1],
-    [10, 5, 0, 6, 0],
-    [11, 6, 0, 8, 1],
-    [13, 7, 0, 8, 0],
-    [14, 8, 0, 9, 0],
-    [15, 8, 0, 10, 0]
+    [1, 1, 0, 3, 1, "IMAGE"],
+    [2, 2, 0, 3, 0, "BACKGROUND_REMOVAL"],
+    [3, 3, 0, 4, 0, "MASK"],
+    [4, 3, 0, 6, 5, "MASK"],
+    [5, 4, 0, 5, 0, "MASK"],
+    [6, 1, 0, 6, 1, "IMAGE"],
+    [10, 5, 0, 6, 0, "IMAGE"],
+    [11, 6, 0, 8, 1, "IMAGE"],
+    [13, 7, 0, 8, 0, "UPSCALE_MODEL"],
+    [14, 8, 0, 9, 0, "IMAGE"],
+    [15, 10, 0, 11, 0, "IMAGE"],
+    [16, 6, 0, 10, 0, "IMAGE"],
+    [17, 3, 0, 12, 0, "MASK"],
+    [18, 12, 0, 13, 0, "IMAGE"]
   ],
   "groups": [],
   "config": {},
