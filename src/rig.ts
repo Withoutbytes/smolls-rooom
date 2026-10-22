@@ -108,6 +108,19 @@ function skinWeights(pos: THREE.BufferAttribute) {
       for (let k = 0; k < w.length; k++) w[k] = (orig[k] / st) * (1 - gHand)
       for (const k of ai) w[k] += gHand * (sa > 1e-9 ? orig[k] / sa : k === ai[2] ? 1 : 0)
     }
+    // Pernas por região, não por envelope: o raio da coxa (0,12) é menor que a perna real, então a parte de cima e de dentro da coxa ficava presa na bacia
+    // e não acompanhava a perna ao sentar (a coxa afinava e a pele esticava). Abaixo da virilha o vértice segue SÓ a perna do seu lado (coxa → canela → pé por altura);
+    // perto do quadril mistura numa faixa curta com a bacia; no meio (|x| pequeno) divide entre as duas pernas. Os braços (zona da mão) ficam de fora.
+    const gLeg = ramp(-y, -J.hpL[1] - 0.06, -J.hpL[1] + 0.08) * (1 - gHand)
+    if (gLeg > 0) {
+      const st = w.reduce((a2, b2) => a2 + b2, 0) || 1
+      const wT = 1 - ramp(-y, -J.knL[1] - 0.08, -J.knL[1] + 0.08), wF = ramp(-y, -J.anL[1] - 0.05, -J.anL[1] + 0.05), wS = Math.max(0, 1 - wT - wF)
+      const sL = ramp(x, -0.06, 0.06)
+      for (let k = 0; k < w.length; k++) w[k] = (w[k] / st) * (1 - gLeg)
+      for (const [Sd, sd] of [['L', sL], ['R', 1 - sL]] as const) {
+        w[IDX['t' + Sd]] += gLeg * sd * wT; w[IDX['s' + Sd]] += gLeg * sd * wS; w[IDX['ft' + Sd]] += gLeg * sd * wF
+      }
+    }
     const top = [...w.keys()].sort((a, b) => w[b] - w[a]).slice(0, 4)
     dn[i] = Math.sqrt(-Math.log(Math.max(w[top[0]], 1e-9)) / 2.2)
     const sum = top.reduce((s, k) => s + w[k], 0) || 1

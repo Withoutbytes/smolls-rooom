@@ -1432,8 +1432,27 @@ export function buildProps(scene: THREE.Scene) {
   const bikeG = new THREE.Group(); bikeG.position.set(2.6, 0, 3.9); scene.add(bikeG)
   const wheel = (z: number) => { const m = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 22), lm(0x151515)); m.rotation.y = Math.PI / 2; m.position.set(0, 0.3, z); bikeG.add(m); return m }
   const wheelF = wheel(-0.5), wheelB = wheel(0.5); void wheelB
-  box(0.03, 0.03, 0.8, 0xc0182c, 0, 0.58, 0, bikeG); const dt1 = box(0.03, 0.03, 0.55, 0xc0182c, 0, 0.3, 0.2, bikeG); dt1.rotation.x = 0.7; box(0.03, 0.3, 0.03, 0x222222, 0, 0.55, 0.3, bikeG); box(0.1, 0.03, 0.18, 0x222222, 0, 0.84, 0.3, bikeG)
-  box(0.03, 0.5, 0.03, 0x888888, 0, 0.3, -0.45, bikeG); box(0.4, 0.03, 0.03, 0x222222, 0, 0.82, -0.45, bikeG); box(0.5, 0.03, 0.04, 0x555555, 0, 0, -0.5, bikeG); box(0.5, 0.03, 0.04, 0x555555, 0, 0, 0.5, bikeG)
+  // quadro em diamante: cada tubo liga dois pontos (z, y) do perfil da bike; as rodas ficam em z = ±0.5, y = 0.3
+  const tube = (z1: number, y1: number, z2: number, y2: number, t: number, c: number) => {
+    const len = Math.hypot(z2 - z1, y2 - y1), m = new THREE.Mesh(new THREE.BoxGeometry(t, t, len), lm(c))
+    m.position.set(0, (y1 + y2) / 2, (z1 + z2) / 2); m.rotation.x = Math.atan2(-(y2 - y1), z2 - z1); bikeG.add(m); return m
+  }
+  const RED = 0xc0182c, BLK = 0x222222, BB: [number, number] = [0.1, 0.27], ST: [number, number] = [0.2, 0.72], HTT: [number, number] = [-0.38, 0.72], HTB: [number, number] = [-0.42, 0.6]
+  tube(...BB, ...ST, 0.03, RED)                // canote do selim
+  tube(...ST, ...HTT, 0.03, RED)               // tubo superior
+  tube(...BB, ...HTB, 0.035, RED)              // tubo diagonal
+  tube(...HTT, ...HTB, 0.04, RED)              // caixa de direção
+  tube(...BB, 0.5, 0.3, 0.02, RED)             // bainha inferior (pro eixo traseiro)
+  tube(0.19, 0.68, 0.5, 0.3, 0.02, RED)        // bainha superior
+  tube(...HTB, -0.5, 0.3, 0.025, 0x888888)     // garfo até o eixo dianteiro
+  tube(...HTT, -0.36, 0.82, 0.025, BLK)        // mesa do guidão
+  box(0.46, 0.03, 0.03, BLK, 0, 0.82, -0.36, bikeG)               // guidão
+  tube(...ST, 0.21, 0.82, 0.025, 0x888888)     // canote
+  box(0.1, 0.035, 0.2, BLK, 0, 0.82, 0.25, bikeG)                  // selim
+  cyl(0.07, 0.015, 0x888888, 0, BB[1] - 0.007, BB[0], bikeG).rotation.z = Math.PI / 2 // coroa
+  box(0.2, 0.02, 0.02, BLK, 0, BB[1], BB[0], bikeG)                // pedivela
+  box(0.04, 0.02, 0.09, BLK, 0.1, BB[1], BB[0], bikeG); box(0.04, 0.02, 0.09, BLK, -0.1, BB[1], BB[0], bikeG) // pedais
+  box(0.5, 0.03, 0.04, 0x555555, 0, 0, -0.5, bikeG); box(0.5, 0.03, 0.04, 0x555555, 0, 0, 0.5, bikeG) // cavalete
   const bk = { st: 0 } // 0 furado, 1 remendado, 2 cheio
   wheelF.scale.y = 0.82
   act(bikeG, () => ['Bicicleta (pneu da frente furado)', 'Bicicleta (remendo feito: falta encher)', 'Bicicleta (pneu cheio)'][bk.st], () => {
