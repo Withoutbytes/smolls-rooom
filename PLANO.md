@@ -284,3 +284,14 @@ Objetivo: a cozinha vira um lugar de fazer coisas de verdade (cozinhar, guardar,
 6. **Smoll**: "Almoça de verdade" (usa prato limpo, garfo e faca, deixa louça suja) e "Guarda a compra" (sacola aparece na mesa quando falta coisa na geladeira; guardar repõe tudo).
 
 **Fora desta rodada**: lavar prato específico pelo Smoll, forninho que assa de verdade, mais bebidas, compras de verdade (sair de casa), persistência dos estados da cozinha no servidor.
+
+## 13. Resultado: cômodos preenchidos
+Feito (tudo em `props.ts`, bloco "CÔMODOS PREENCHIDOS"; sons em `sfx.ts`; `inventory.ts` ganhou `kick` e `zoomCam`):
+- **Oficina**: ferramentas pegáveis na bancada, caixa de ferramentas e gaveteiro (baús), prateleira com caixas etiquetadas, bancada de eletrônica (osciloscópio animado, ferro de solda com fumaça, multímetro, RAM), quadro de ideias com post-its salvos em localStorage, impressora 3D (4 brinquedos, 20 s, vira item), ventilador quebrado (conserta com a chave de fenda), bicicleta com pneu furado (fita isolante + encher), extintor.
+- **Sala**: estante com 8 livros (texto ao pegar/ler), videogame com jogo da velha contra o Smoll (precisa de controle), mesa de centro (pipoca, Kuat, copo, controles, tabuleiro "Corrida dos Bugs"), vitrola com 3 faixas geradas em Web Audio (volume pela distância), janela com cortina, quadro de fotos, vitrine de action figures, relógio, lixeirinha, planta que cresce.
+- **Varanda**: cadeira de balanço sentável que balança, mesinha com 21 contra o Smoll, baralho e binóculos (zoom 4 s), vasos que crescem, regador, gaiola que canta, varal pequeno, tapete, chinelos.
+- **Corredor**: quadro de disjuntores por cômodo (desarma luz/ventilador do cômodo), porta-chaves (a chave do portão funciona), sapateira, cabideiro (chapéu, óculos, moletom: vestir aparece no reflexo), espelho de corpo inteiro, interfone com histórico de quem tocou, extintor, tapetes.
+- **Garagem/quintal**: prateleira com galão e ferramentas, bola de futebol (E chuta com física), rede de vôlei, ferramentas de jardim, piscina de plástico (boiar), trampolim, galinheiro (ovos e 3 galinhas), horta com 8 plantas que crescem regadas e colhem, mangueira (rega e enche copo), tanque que lava roupa (volta "lavado" em 5 s), churrasqueira com ponto da carne (cru, ponto, passada, queimou) e caixa de isopor.
+- **Smoll**: 5 tarefas novas no menu "Pede pra ele fazer algo": videogame, consertar ventilador, regar horta, churrasco (entrega picanha), violão na varanda (novos nós/arestas: oficina, quintal, varanda).
+
+Pendente: Smoll jogando de verdade no console (hoje só aparece "no controle 2"), trampolim sem impulso real do jogador, truco (só 21), roupas no Smoll, persistência de plantas e post-its no servidor, sincronia multiplayer destes objetos, mini-jogo de solda, sons espaciais além da vitrola/passarinho. Nada disso foi testado no navegador (só `vite build`).

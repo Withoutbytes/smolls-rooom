@@ -113,7 +113,19 @@ export function buildSmoll(scene: THREE.Scene) {
     const mug = new THREE.Group()
     const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 12), lm(0xffffff)); const coffee = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.005, 12), lm(0x3a1f10))
     coffee.position.y = -0.05; mug.add(cup, coffee); mug.position.set(0, -0.1, 0.04); rig.bones[10].add(mug)
-    anim = createAnim(rig, mug)
+    // segunda roupa: modelo 3D de bermuda e chinelo (Hunyuan3D). A pose vai pros dois esqueletos; só um aparece. Se o arquivo faltar, vale o efeito de tinta no jeans.
+    let rigB: ReturnType<typeof buildRig> | null = null, mwB: THREE.Group | null = null
+    new GLTFLoader().load('/models/smoll_bermuda_hq.glb', (g2) => {
+      let s2: THREE.Mesh | undefined
+      g2.scene.traverse((o) => { if (!s2 && (o as THREE.Mesh).isMesh) s2 = o as THREE.Mesh })
+      if (!s2) return
+      s2.geometry.computeVertexNormals()
+      rigB = buildRig(s2.geometry, new THREE.MeshLambertMaterial({ map: (s2.material as THREE.MeshStandardMaterial).map }))
+      mwB = new THREE.Group(); mwB.scale.setScalar(S); mwB.position.y = 0.999 * S; mwB.add(rigB.mesh); holder.add(mwB)
+      mwB.visible = state.smollShorts; mw.visible = !state.smollShorts; shorts.value = 0
+      if (state.smollShorts) rigB.bones[10].add(mug)
+    })
+    anim = createAnim({ apply: (pose) => { rig.apply(pose); rigB?.apply(pose) } }, mug)
     M.visible = true; B.visible = false
     hitbox.visible = false; delete R.userData.act                            // o alvo agora é o modelo
     const gotoBed = () => { if (mode !== 'desk') return false; anim!.stand(true); mode = 'toBed'; wp = [[17.5, 12.2], [15.3, 12.2], [14.85, 13]]; return true }
@@ -130,7 +142,7 @@ export function buildSmoll(scene: THREE.Scene) {
     const changeClothes = () => {
       const f = document.getElementById('fade')!, now = !state.smollShorts
       f.style.opacity = '1'
-      setTimeout(() => { state.smollShorts = now; shorts.value = now ? 1 : 0; f.style.opacity = '0'; toast(now ? 'Smoll voltou de bermuda. As pernas nunca viram o sol. 🩳' : 'Smoll voltou de calça jeans. Calor? Ele nem liga.') }, 1300)
+      setTimeout(() => { state.smollShorts = now; shorts.value = now && !rigB ? 1 : 0; if (rigB && mwB) { mw.visible = !now; mwB.visible = now; (now ? rigB : rig).bones[10].add(mug) } f.style.opacity = '0'; toast(now ? 'Smoll voltou de bermuda. As pernas nunca viram o sol. 🩳' : 'Smoll voltou de calça jeans. Calor? Ele nem liga.') }, 1300)
       return now
     }
     // ---- tarefas: o Smoll anda por um grafo de pontos (portas e cômodos), faz a ação e volta pro PC pelo mesmo caminho ----
@@ -139,16 +151,20 @@ export function buildSmoll(scene: THREE.Scene) {
       kdoor: [16.5, 6.5], kin: [16.5, 5.2], fridge: [17.6, 1.6], sdoor: [10.5, 6.5], sin: [10.5, 5.0], tv: [11.95, 4.4], bdoor: [9.5, 10.5], bin: [9.5, 12.6], shower: [10.2, 13.8],
       g1: [15.0, 13.4], gtr: [13.4, 14.4], qsw: [16.45, 11.7], ssw: [9.0, 4.4],
       sofa: [10.5, 1.75], kw1: [15.2, 4.9], kw2: [15.2, 2.4], pia: [16.5, 2.1], fogao: [17.9, 4.95], mesa: [16.5, 2.6],
+      odoor: [4.5, 6.5], oin: [4.5, 4.8], ofi: [5.8, 4.2],                                                          // oficina
+      fdoor: [19.5, 8.5], q1: [21.5, 8.5], q2: [22.0, 11.8], horta: [23.0, 14.9], q3: [26.0, 11.6], churras: [26.4, 14.6], // quintal (pela porta da frente)
+      vdoor: [3.5, 10.5], vin: [3.5, 12.0], vsit: [4.4, 12.6],                                                      // varanda
     }
     const E: [string, string][] = [['desk', 'qin'], ['qin', 'qdoor'], ['qdoor', 'c15'], ['c15', 'c16'], ['c15', 'c10'], ['c10', 'c9'], ['c9', 'c4'], ['c16', 'kdoor'], ['kdoor', 'kin'], ['kin', 'kw1'], ['kw1', 'kw2'], ['kw2', 'pia'], ['kw1', 'fogao'], ['fogao', 'fridge'], ['pia', 'mesa'],
-      ['c10', 'sdoor'], ['sdoor', 'sin'], ['sin', 'tv'], ['sin', 'sofa'], ['sin', 'ssw'], ['c9', 'bdoor'], ['bdoor', 'bin'], ['bin', 'shower'], ['qin', 'g1'], ['g1', 'gtr'], ['qin', 'qsw']]
+      ['c10', 'sdoor'], ['sdoor', 'sin'], ['sin', 'tv'], ['sin', 'sofa'], ['sin', 'ssw'], ['c9', 'bdoor'], ['bdoor', 'bin'], ['bin', 'shower'], ['qin', 'g1'], ['g1', 'gtr'], ['qin', 'qsw'],
+      ['c4', 'odoor'], ['odoor', 'oin'], ['oin', 'ofi'], ['c16', 'fdoor'], ['fdoor', 'q1'], ['q1', 'q2'], ['q2', 'horta'], ['q2', 'q3'], ['q3', 'churras'], ['c4', 'vdoor'], ['vdoor', 'vin'], ['vin', 'vsit']]
     const route = (to: string): [number, number][] => { // busca em largura no grafo
       const prev: Record<string, string> = { desk: '' }, q = ['desk']
       while (q.length) { const a = q.shift()!; for (const [x, y] of E) { const b = x === a ? y : y === a ? x : ''; if (b && !(b in prev)) { prev[b] = a; q.push(b) } } }
       const out: [number, number][] = []; for (let n = to; n; n = prev[n]) out.unshift(N[n]); return out
     }
     routeOut = route
-    type Task = { to: string; face: number; clip: Clip; secs: number; run: () => void; done?: () => void; sit?: number }
+    type Task = { to: string; face: number; clip: Clip; secs: number; run: () => void; done?: () => void; sit?: number; open?: boolean } // open: sai pela porta da frente (abre e fecha depois)
     const TASKS: Record<string, Task> = {
       tv: { to: 'tv', face: -Math.PI / 2, clip: 'point', secs: 2.5, run: () => { world.tv(); toast('Smoll mexeu na TV. 📺') } },
       luz: { to: 'ssw', face: Math.PI, clip: 'point', secs: 2, run: () => { world.luz.sala?.(); toast('Smoll apertou o interruptor da sala. 💡') } },
@@ -166,9 +182,15 @@ export function buildSmoll(scene: THREE.Scene) {
       'kuat-voce': { to: 'fridge', face: 0, clip: 'sip', secs: 3.6, run: () => toast('Smoll pegou uma Kuat pra você. 🥤'), done: () => { if (give('kuat')) toast('Smoll jogou uma Kuat pra você! 🥤 (mochila)') } },
       violao: { to: 'gtr', face: Math.PI, clip: 'dance', secs: 6.5, run: () => { for (let i = 0; i < 5; i++) setTimeout(() => strum(0.1), i * 1200) } },
       banho: { to: 'shower', face: -Math.PI / 2, clip: 'stretch', secs: 7, run: () => { world.chuveiro(true); setTimeout(() => world.chuveiro(false), 6500); toast('Smoll entrou no banho. Cantando alto. 🚿') } },
+      jogar: { to: 'sofa', face: -Math.PI / 2, clip: 'laugh', secs: 40, sit: 0.14, run: () => { anim!.stand(false); world.acao.jogar?.() } },
+      consertar: { to: 'ofi', face: -Math.PI / 2, clip: 'point', secs: 5, run: () => world.acao.consertar?.() },
+      regar: { to: 'horta', face: -Math.PI / 2, clip: 'point', secs: 7, open: true, run: () => world.acao.regar?.() },
+      churrasco: { to: 'churras', face: -Math.PI / 2, clip: 'point', secs: 14, open: true, run: () => world.acao.churrasco?.(), done: () => world.acao.churrascoFim?.() },
+      violaovaranda: { to: 'vsit', face: Math.PI, clip: 'dance', secs: 7, run: () => { toast('Smoll pegou o violão e sentou na varanda. 🎸'); for (let i = 0; i < 5; i++) setTimeout(() => strum(0.1), i * 1300) } },
     }
     const startTask = (name: string) => {
       const t = TASKS[name]; if (!t || mode !== 'desk') return false
+      if (t.open) { state.doorOpen = true; setTimeout(() => (state.doorOpen = false), (t.secs + 35) * 1000) }
       anim!.stand(true); task = t; mode = 'goTask'; modeT = 0; wp = route(t.to).slice(1); return true
     }
     // repor a mesa: quando acaba energético ou café da mesa dele, vai buscar (geladeira / cafeteira) e coloca de volta

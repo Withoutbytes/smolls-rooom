@@ -69,6 +69,11 @@ const tasks = (): Node => {
       { t: '🍽️ Vai comer', fn: ask('task:comer', ['Tô morrendo de fome.', 'Almoço!']) },
       { t: '🎸 Toca violão', fn: ask('task:violao', ['Vou tocar a única música que eu sei.', 'Preparando o show…']) },
       { t: '🚿 Vai tomar banho', fn: ask('task:banho', ['Tô precisando mesmo.', 'Vou lá. Não olha o histórico.']) },
+      { t: '🎮 Joga videogame comigo', fn: ask('task:jogar', ['Bora! Mas o controle bom é o meu.', 'Vou ganhar de você no jogo da velha.']) },
+      { t: '🔧 Conserta o ventilador da oficina', fn: ask('task:consertar', ['É só apertar um parafuso. Tá, achar a chave é o difícil.', 'Já vou com a chave de fenda.']) },
+      { t: '🌱 Rega a horta', fn: ask('task:regar', ['Vou lá. O sol de Rondônia não perdoa.', 'Eu rego, mas quem colhe é você.']) },
+      { t: '🍖 Faz um churrasco', fn: ask('task:churrasco', ['Churrasco! Já separo a picanha.', 'Deixa o carvão comigo.']) },
+      { t: '🎸 Toca violão na varanda', fn: ask('task:violaovaranda', ['Vou tocar na varanda, o som fica melhor.', 'A mesma música de sempre, mas ao vivo.']) },
       back,
     ],
   }
