@@ -17,7 +17,7 @@ export interface Pose {
 
 const mir = (v: V3): V3 => [-v[0], v[1], v[2]]
 // Medidas de uma malha: juntas do lado esquerdo (+x; o direito é o espelho), juntas do centro, escala dos raios e a zona da mão
-export interface SkelSpec { name: string; JL: Record<string, V3>; core: Record<string, V3>; k: number; hand: [number, number, number, number, number, number] }
+export interface SkelSpec { name: string; JL: Record<string, V3>; core: Record<string, V3>; k: number; hand: [number, number, number, number, number, number]; cloth?: (r: number, g: number, b: number) => boolean } // cloth: cor (da textura) que é roupa solta, nunca segue o braço
 export const SMOLL_SKEL: SkelSpec = {
   name: 'smoll', k: 1, hand: [0.245, 0.27, 0.05, 0.2, -0.45, -0.3],  // hand = [x0, x1, yCima0, yCima1, yBaixo0, yBaixo1] da zona onde só o braço manda
   JL: {
@@ -86,22 +86,23 @@ export function lerpPose(a: any, b: any, k: number) { // a é alterado em direç
 
 // Pesos por envelope: distância 3D do vértice até o segmento de cada osso, dividida pelo raio do osso
 // (tronco largo, braço fino). Mistura suave onde a malha é colada (sovaco, virilha), sem corte seco que estica a pele.
-function skinWeights(pos: THREE.BufferAttribute) {
+function skinWeights(pos: THREE.BufferAttribute, cloth?: Uint8Array) {
   const n = pos.count
   const idx = new Uint16Array(n * 4), wts = new Float32Array(n * 4), w = new Float64Array(BONES.length), dn = new Float32Array(n) // dn = distância normalizada ao osso dominante
   const A = SEG.map((s) => seg(s[1])), B = SEG.map((s) => seg(s[2])), AB = SEG.map((_, i) => B[i].clone().sub(A[i])), L2 = AB.map((v) => v.lengthSq())
   const v = new THREE.Vector3(), q = new THREE.Vector3()
   for (let i = 0; i < n; i++) {
     v.set(pos.getX(i), pos.getY(i), pos.getZ(i))
-    const x = v.x, y = v.y, ax = Math.abs(x), S = x >= 0 ? 'L' : 'R'
+    const x = v.x, y = v.y, ax = Math.abs(x), S = x >= 0 ? 'L' : 'R', isCloth = !!cloth?.[i]
     w.fill(0)
     for (let k = 0; k < SEG.length; k++) {
       const t = Math.min(1, Math.max(0, q.copy(v).sub(A[k]).dot(AB[k]) / L2[k]))
       const d = q.copy(A[k]).addScaledVector(AB[k], t).distanceTo(v) / SEG[k][3]
       w[IDX[SEG[k][0]]] = Math.exp(-2.2 * d * d)
     }
+    if (isCloth) for (const Sd of ['L', 'R']) for (const b of ['u', 'f', 'h']) w[IDX[b + Sd]] = 0 // pano da bermuda não acompanha o braço, mesmo na altura da mão
     // Mãos coladas na coxa: fora da perna (|x| > 0,25) e abaixo do cotovelo, o vértice segue SÓ o braço, senão a coxa puxa a pele da mão
-    const gHand = ramp(ax, HAND[0], HAND[1]) * (1 - ramp(y, HAND[2], HAND[3])) * ramp(y, HAND[4], HAND[5]) // só na altura dos braços (os pés também ficam em |x| > 0,25)
+    const gHand = (isCloth ? 0 : 1) * ramp(ax, HAND[0], HAND[1]) * (1 - ramp(y, HAND[2], HAND[3])) * ramp(y, HAND[4], HAND[5]) // só na altura dos braços (os pés também ficam em |x| > 0,25)
     if (gHand > 0) {
       const ai = [IDX['u' + S], IDX['f' + S], IDX['h' + S]]
       const orig = Float64Array.from(w), st = orig.reduce((a2, b2) => a2 + b2, 0) || 1, sa = ai.reduce((a2, k) => a2 + orig[k], 0)
@@ -129,6 +130,18 @@ function skinWeights(pos: THREE.BufferAttribute) {
   return { idx, wts, dn }
 }
 
+// marca os vértices cuja cor na textura é "roupa solta" (amostra a textura no UV de cada vértice)
+function clothMask(geo: THREE.BufferGeometry, img: CanvasImageSource | undefined, isCloth: NonNullable<SkelSpec['cloth']>) {
+  if (!img) return undefined
+  const iw = (img as HTMLImageElement).width, ih = (img as HTMLImageElement).height, c = document.createElement('canvas'); c.width = iw; c.height = ih
+  const g = c.getContext('2d', { willReadFrequently: true })!; g.drawImage(img, 0, 0)
+  const d = g.getImageData(0, 0, iw, ih).data, uv = geo.attributes.uv, m = new Uint8Array(uv.count)
+  for (let i = 0; i < uv.count; i++) {
+    const px = Math.min(iw - 1, Math.max(0, Math.floor(uv.getX(i) * iw))), py = Math.min(ih - 1, Math.max(0, Math.floor(uv.getY(i) * ih))), o = (py * iw + px) * 4 // UV do glTF: origem no topo
+    m[i] = isCloth(d[o], d[o + 1], d[o + 2]) ? 1 : 0
+  }
+  return m
+}
 const wcache = new Map<string, ReturnType<typeof skinWeights>>() // pesos são caros (25 mil vértices): calcula uma vez por malha
 export function buildRig(src: THREE.BufferGeometry, material: THREE.Material, spec: SkelSpec = SMOLL_SKEL) {
   return withSkeleton(spec, () => buildRigNow(src, material, spec))
@@ -136,7 +149,7 @@ export function buildRig(src: THREE.BufferGeometry, material: THREE.Material, sp
 function buildRigNow(src: THREE.BufferGeometry, material: THREE.Material, spec: SkelSpec) {
   const geo = src.clone()
   const ck = spec.name + src.uuid
-  const { idx, wts } = wcache.get(ck) ?? (wcache.set(ck, skinWeights(geo.attributes.position as THREE.BufferAttribute)), wcache.get(ck)!)
+  const { idx, wts } = wcache.get(ck) ?? (wcache.set(ck, skinWeights(geo.attributes.position as THREE.BufferAttribute, spec.cloth && clothMask(geo, (material as THREE.MeshLambertMaterial).map?.image, spec.cloth))), wcache.get(ck)!)
   // Obs.: o braço do GLB é uma casca aberta colada ao tronco (sem a metade de dentro); por isso os gestos mantêm os braços
   // perto do corpo. Levantar o braço de lado revela a casca como uma 'asa'.
   geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4))
@@ -186,6 +199,9 @@ function buildRigNow(src: THREE.BufferGeometry, material: THREE.Material, spec: 
   }
 }
 
+// Bermuda azul: o pano azul (b bem acima de r) nunca segue o braço; a pele da mão segue só o braço
+export const SHORTS_SKEL: SkelSpec = { ...SMOLL_SKEL, name: 'smoll-shorts', cloth: (r, g, b) => b > r * 1.25 && b > 60 }
+
 // Skin da cueca vermelha: malha mais estreita que a do moletom (braço e quadril em x ≈ 0,3 contra 0,39), então as juntas em x são encolhidas
 const narrow = (sp: SkelSpec, ka: number, kl: number, name: string): SkelSpec => {
   const JL: Record<string, V3> = {}
@@ -194,7 +210,7 @@ const narrow = (sp: SkelSpec, ka: number, kl: number, name: string): SkelSpec =>
 }
 const RED0 = narrow(SMOLL_SKEL, 0.78, 0.82, 'smoll-red')
 // virilha dessa malha fica em y ≈ -0,42 (no moletom, -0,28): o quadril desce pra coxa dobrar na dobra da perna, e não no joelho
-export const RED_SKEL: SkelSpec = { ...RED0, JL: { ...RED0.JL, hp: [RED0.JL.hp[0], -0.32, RED0.JL.hp[2]] } }
+export const RED_SKEL: SkelSpec = { ...RED0, cloth: (r, g, b) => r > 100 && r > g * 1.9 && r > b * 1.9, JL: { ...RED0.JL, hp: [RED0.JL.hp[0], -0.32, RED0.JL.hp[2]] } }
 
 // Nessa malha a mão nasce colada na coxa: ao sentar, o braço em pose puxa a pele da coxa. Os braços ficam quase na posição de repouso (pendurados), só um pouco influenciados pela pose.
 const REST_RED = restPose(RED_SKEL)

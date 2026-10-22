@@ -7,7 +7,7 @@ import { ITEMS, give } from './inventory'
 import { state, toast, world, deskMissing } from './state'
 import { strum } from './sfx'
 import { tv } from './tv'
-import { RED_SKEL, buildRig, redPose } from './rig'
+import { RED_SKEL, SHORTS_SKEL, buildRig, redPose } from './rig'
 import { createAnim, type Clip, type BedPose, BED_POSES } from './smollAnim'
 
 // Smoll 3D de primitivas: cadeira gamer + ele sentado + mesa com 2 monitores. Frente do grupo = +x (virado pra parede leste).
@@ -129,7 +129,7 @@ export function buildSmoll(scene: THREE.Scene) {
       g2.scene.traverse((o) => { if (!s2 && (o as THREE.Mesh).isMesh) s2 = o as THREE.Mesh })
       if (!s2) return
       s2.geometry.computeVertexNormals()
-      const r2 = buildRig(s2.geometry, new THREE.MeshLambertMaterial({ map: (s2.material as THREE.MeshStandardMaterial).map }), k === 'red' ? RED_SKEL : undefined)
+      const r2 = buildRig(s2.geometry, new THREE.MeshLambertMaterial({ map: (s2.material as THREE.MeshStandardMaterial).map }), k === 'red' ? RED_SKEL : SHORTS_SKEL)
       const grp = new THREE.Group(); grp.scale.setScalar(S); grp.position.y = 0.999 * S; grp.add(r2.mesh); holder.add(grp)
       outfits[k] = { rig: r2, grp }; showOutfit()
     })
