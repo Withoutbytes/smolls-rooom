@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import './loading'
-import { MAP, FLOOR, WALL, WALL_H, OUTDOOR, topAt } from './map'
+import { MAP, WALL, WALL_H, OUTDOOR, topAt } from './map'
 import { state, gateWalls, toast, gameHour, clock, type Vehicle } from './state'
 import { updateInteract, dialog } from './interact'
-import { buildProps, blockers, mosaicMat, roofHeight, playerPos } from './props'
+import { buildProps, blockers, roofHeight, playerPos } from './props'
 import { PLACE } from './place'
 import { UM, JOIN, MAC, PAL, BAR } from './bairro'
 import { connectNet } from './net'
@@ -12,16 +12,19 @@ import { loadInventory, initHeld, updateHeld } from './inventory'
 import { initPhone } from './phone'
 import './social'
 import { tv, cssR } from './tv'
+import { initFx } from './fx'
+import { pbr, FLOOR_TEX } from './tex'
 
 const H = 2.6
 const R = 0.2
 const scene = new THREE.Scene()
-scene.fog = new THREE.Fog(0xdfeaf5, 60, 170) // névoa de distância: esconde o fim do mundo
+scene.fog = new THREE.Fog(0x8d98a0, 18, 110) // névoa de distância: esconde o fim do mundo
 const ceilings: THREE.Object3D[] = [] // somem na vista do mapa
 scene.background = new THREE.Color(0x8cc4f2)
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200)
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }) // alpha: o "buraco" da TV deixa ver o iframe do YouTube por trás
 renderer.setSize(innerWidth, innerHeight)
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.domElement.style.cssText = 'position:fixed;inset:0;z-index:1'
 document.body.append(cssR.domElement, renderer.domElement)
 ;(window as any).__info = renderer.info // debug: chamadas de desenho e triângulos
@@ -35,10 +38,10 @@ scene.add(monitorLight)
 const floorGeo = new THREE.PlaneGeometry(1, 1)
 const wallMat: Record<string, THREE.Material> = {}
 const geo: Record<string, THREE.BoxGeometry> = {}
-const ceilMat = new THREE.MeshLambertMaterial({ color: 0xf2efe6 })
+const ceilMat = pbr('beige_wall_001', 0xf2efe6, 1, THREE.DoubleSide)
 const glassMat = new THREE.MeshLambertMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false })
 const frameMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 })
-const wm = (c: string) => (wallMat[c] ??= c === 'T' ? mosaicMat() : new THREE.MeshLambertMaterial({ color: WALL[c] }))
+const wm = (c: string) => (wallMat[c] ??= c === 'T' ? pbr('castle_wall_slates') : c === 'M' ? pbr('beige_wall_001', 0xd8cdb8) : pbr('beige_wall_001'))
 const isWall = (x: number, z: number) => ['#', 'w', 'M'].includes(MAP[z]?.[x])
 
 // janela de verdade: parede com buraco (peitoril + verga), vidro transparente e esquadria
@@ -58,12 +61,15 @@ function windowCell(x: number, z: number) {
   scene.add(pane)
 }
 
+// caixa de parede com UV em metros: a textura não estica na altura
+const wallGeo = (h: number) => { const g = new THREE.BoxGeometry(1, h, 1), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) if (i < 8 || i >= 16) uv.setY(i, uv.getY(i) * h); return g }
+
 MAP.forEach((row, z) => [...row].forEach((c, x) => {
   if (c === 'X') return // parede invisível (só colisão)
   if (c === 'w') return windowCell(x, z)
   if (c in WALL) {
     const h = WALL_H[c]
-    const m = new THREE.Mesh(geo[c] ??= new THREE.BoxGeometry(1, h, 1), wm(c))
+    const m = new THREE.Mesh(geo[c] ??= wallGeo(h), wm(c))
     m.position.set(x + 0.5, h / 2, z + 0.5)
     scene.add(m)
     if (c === 'P') gateWalls.push(m)
@@ -71,8 +77,9 @@ MAP.forEach((row, z) => [...row].forEach((c, x) => {
   }
   const out = OUTDOOR.includes(c)
   // quintal: manchas de grama e terra vermelha
-  const color = c === 'Y' ? (Math.sin(x * 12.9 + z * 78.2) * 43758 % 1 > -0.3 ? (Math.sin(x * 3.1 + z * 5.7) > 0 ? 0x5c8a3a : 0x4f7d33) : 0x9c4a2f) : FLOOR[c] ?? FLOOR.H
-  const f = new THREE.Mesh(floorGeo, new THREE.MeshLambertMaterial({ color }))
+  const dirtPatch = Math.sin(x * 12.9 + z * 78.2) * 43758 % 1 <= -0.3
+  const mat = c === 'Y' ? (dirtPatch ? pbr('red_laterite_soil_stones') : pbr('grass_path_2', Math.sin(x * 3.1 + z * 5.7) > 0 ? 0xffffff : 0xd8e4c0)) : pbr(FLOOR_TEX[c] ?? FLOOR_TEX.H)
+  const f = new THREE.Mesh(floorGeo, mat)
   f.rotation.x = -Math.PI / 2
   f.position.set(x + 0.5, 0, z + 0.5)
   scene.add(f)
@@ -105,7 +112,7 @@ const skyTex = (() => {
 const sky = new THREE.Mesh(new THREE.SphereGeometry(180, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }))
 sky.position.set(30, 0, 11)
 scene.add(sky)
-const dirt = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshLambertMaterial({ color: 0x9c4a2f }))
+const dirt = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), pbr('red_laterite_soil_stones', 0xffffff, 800))
 dirt.rotation.x = -Math.PI / 2; dirt.position.set(20, -0.02, 11)
 scene.add(dirt)
 const sun = new THREE.Mesh(new THREE.SphereGeometry(3), new THREE.MeshBasicMaterial({ color: 0xfff3c4, fog: false }))
@@ -113,14 +120,29 @@ sun.position.set(-40, 45, 70)
 scene.add(sun)
 const sunLight = new THREE.DirectionalLight(0xfff0d0, 1.2)
 sunLight.position.set(-40, 45, 70)
-scene.add(sunLight)
+sunLight.castShadow = true; sunLight.shadow.mapSize.set(1024, 1024); sunLight.shadow.bias = -0.0004; sunLight.shadow.normalBias = 0.03
+Object.assign(sunLight.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 320 })
+scene.add(sunLight, sunLight.target)
+const fx = new URLSearchParams(location.search).get('fx') === '0' ? null : initFx(renderer, scene, camera) // ?fx=0 desliga o pós-processamento (celular fraco)
+// sombras: só o que é iluminado e opaco projeta/recebe; chão (plano virado pra cima) só recebe. Rodado de tempos em tempos pra pegar o que carrega depois (Smoll, itens)
+const shade = () => scene.traverse((o) => {
+  const m = o as THREE.Mesh; if (!m.isMesh || m.userData.sh) return; m.userData.sh = 1
+  const mat = m.material as THREE.Material; if (Array.isArray(mat) || mat.transparent || !((mat as any).isMeshLambertMaterial || (mat as any).isMeshStandardMaterial)) return
+  m.receiveShadow = true; m.castShadow = !(m.geometry.type === 'PlaneGeometry' && m.rotation.x < 0)
+})
+let shadeT = 0
+// FPS no canto (F2 liga/desliga os efeitos pra comparar o custo)
+const fpsEl = document.createElement('div'); fpsEl.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:50;font:12px monospace;color:#9f9;background:#000a;padding:3px 6px;border-radius:4px;pointer-events:none'
+document.body.append(fpsEl)
+let fpsN = 0, fpsT = 0, fpsLast = performance.now()
+addEventListener('keydown', (e) => { if (e.code === 'F2' && fx) { e.preventDefault(); fx.toggle() } })
 
 // lua e estrelas (aparecem de noite)
 const moon = new THREE.Mesh(new THREE.SphereGeometry(2.2), new THREE.MeshBasicMaterial({ color: 0xdfe8ff, fog: false })); scene.add(moon)
 const starGeo = new THREE.BufferGeometry()
 starGeo.setAttribute('position', new THREE.BufferAttribute((() => { const a = new Float32Array(450 * 3); for (let i = 0; i < 450; i++) { const th = Math.random() * Math.PI * 2, y = 0.05 + Math.random() * 0.95, r = Math.sqrt(1 - y * y) * 170; a.set([r * Math.cos(th), y * 170, r * Math.sin(th)], i * 3) } return a })(), 3))
 const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, fog: false, transparent: true })); scene.add(stars)
-const cDay = new THREE.Color(1, 1, 1), cNight = new THREE.Color(0.04, 0.06, 0.16), cDusk = new THREE.Color(1, 0.6, 0.4), cTmp = new THREE.Color(), fogBase = new THREE.Color(0xdfeaf5)
+const cDay = new THREE.Color(0.5, 0.57, 0.66), cNight = new THREE.Color(0.04, 0.06, 0.16), cDusk = new THREE.Color(1, 0.6, 0.4), cTmp = new THREE.Color(), fogBase = new THREE.Color(0xa9b3ba)
 const clockEl = document.getElementById('clock')!
 let clockT = 0
 const applyTime = (h: number, px: number, pz: number) => {
@@ -129,10 +151,10 @@ const applyTime = (h: number, px: number, pz: number) => {
   cTmp.copy(cNight).lerp(cDay, day).lerp(cDusk, dusk * 0.5)
   ;(sky.material as THREE.MeshBasicMaterial).color.copy(cTmp)
   scene.fog!.color.copy(fogBase).multiply(cTmp)
-  ambient.intensity = 0.32 + 1.08 * day; ambient.color.setRGB(0.62 + 0.38 * day, 0.68 + 0.32 * day, 1)
-  sunLight.intensity = 1.2 * day; sunLight.color.setRGB(1, 0.94 - 0.3 * dusk, 0.82 - 0.5 * dusk)
+  ambient.intensity = 0.35 + 1.0 * day; ambient.color.setRGB(0.55 + 0.3 * day, 0.62 + 0.28 * day, 1)
+  sunLight.intensity = 1.7 * day; sunLight.color.setRGB(0.85, 0.9 - 0.3 * dusk, 0.95 - 0.5 * dusk) // céu encoberto: sol frio e mais fraco
   const ox = Math.cos(a) * 100, oy = s * 90 + 4, oz = 25                 // nasce no leste (+x) e se põe no oeste
-  sunLight.position.set(ox, Math.max(oy, 5), oz)
+  sunLight.position.set(px + ox, Math.max(oy, 5), pz + oz); sunLight.target.position.set(px, 0, pz); sunLight.castShadow = day > 0.03 // a sombra segue o jogador
   sun.position.set(px + ox, oy, pz + oz); sun.visible = s > -0.15
   ;(sun.material as THREE.MeshBasicMaterial).color.setRGB(1, 0.95 - 0.25 * dusk, 0.77 - 0.45 * dusk)
   moon.position.set(px - ox, -oy, pz - oz); moon.visible = s < 0.1
@@ -149,6 +171,7 @@ ceilings.push(...props.roofs) // telhados também somem na vista do mapa
 const p = { x: 15.5, y: 0, z: 8.5, yaw: Math.PI, pitch: 0 }
 ;(window as any).__p = p // debug: teleporta no console
 ;(window as any).__clock = clock // debug: muda a hora do jogo
+;(window as any).__state = state // debug: estado compartilhado
 const keys = new Set<string>()
 addEventListener('keydown', (e) => { if (!state.editing) keys.add(e.code) })
 addEventListener('keyup', (e) => keys.delete(e.code))
@@ -193,7 +216,7 @@ addEventListener('mousemove', (e) => {
   p.pitch = Math.max(-1.3, Math.min(1.3, p.pitch - e.movementY * 0.002))
 })
 addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitMap(); renderer.setSize(innerWidth, innerHeight)
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitMap(); renderer.setSize(innerWidth, innerHeight); fx?.resize(innerWidth, innerHeight)
 })
 
 // Física: gravidade, pulo (espaço), colisão com altura e agarrar de borda. O que tem topo ≤ pés + degrau não bloqueia (sobe nele); acima, bloqueia.
@@ -270,7 +293,8 @@ const driveStep = (dt: number) => {
 initHeld(camera, scene, { ground: groundAt, free })
 initPhone(camera, p)
 addEventListener('contextmenu', (e) => e.preventDefault())
-let last = performance.now()
+let last = performance.now(), inK = 0 // inK: 0 fora, 1 dentro de casa (suavizado)
+const warm = new THREE.Color(0xffe0bd)
 renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.05); last = now
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
@@ -324,8 +348,13 @@ renderer.setAnimationLoop((now) => {
   tv.update(p.x, p.z, dt)
   updateHeld(dt, !!(keys.has('KeyW') || keys.has('KeyA') || keys.has('KeyS') || keys.has('KeyD')))
   playerPos.x = p.x; playerPos.z = p.z
-  { const h = gameHour(); applyTime(h, p.x, p.z); if ((clockT += dt) > 0.5) { clockT = 0; clockEl.textContent = `🕒 ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}` } }
-  renderer.render(scene, mapMode ? mapCam : camera)
+  { const h = gameHour(); applyTime(h, p.x, p.z)
+    inK += ((isFinite(ceilingOver(p.x, p.z)) ? 1 : 0) - inK) * Math.min(1, dt * 3) // dentro de casa: luz mais quente e cor menos dessaturada; fora, o frio do Village
+    ambient.intensity += 0.55 * inK; ambient.color.lerp(warm, 0.65 * inK); fx?.grade(0.62 + 0.28 * inK)
+    if ((clockT += dt) > 0.5) { clockT = 0; clockEl.textContent = `🕒 ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}` } }
+  if ((shadeT -= dt) < 0) { shadeT = 2; shade() }
+  if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2)`; fpsN = fpsT = 0 }
+  if (fx?.on && !mapMode) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera)
   if (state.photoReq) { const f = state.photoReq; state.photoReq = null; f(renderer.domElement.toDataURL('image/jpeg', 0.75)) } // foto do celular
   if (!mapMode) tv.render(camera)
 })

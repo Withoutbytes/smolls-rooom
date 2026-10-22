@@ -3,6 +3,7 @@ import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import { act } from './interact'
 import { PLACE } from './place'
 import { gifTexture } from './gifTexture'
+import { pbr, surface, metersUV, crown, barkMat } from './tex'
 import { tv, openRemote } from './tv'
 import { chime, bark, strum, sizzle, clink, tweet, cluck, musicPlay, musicStop, musicVol, musicTrack, TRACKS } from './sfx'
 import { defineItem, give as giveItem, takeItem, count as invCount, ITEMS, leftovers, kick, zoomCam } from './inventory'
@@ -62,13 +63,15 @@ export function buildProps(scene: THREE.Scene) {
   let root: THREE.Object3D = scene, ox = 0 // raiz e deslocamento em x usados pelo bloco da rua (que mora num Group deslocado)
   const fans: THREE.Object3D[] = []
   const block = (x0: number, z0: number, x1: number, z1: number, top = 2.6, bottom = 0) => blockers.push([x0 + ox, z0, x1 + ox, z1, top, bottom])
-  const lm = (c: number) => new THREE.MeshLambertMaterial({ color: c })
+  const lm = (c: number) => surface(c)
   const bm = (c: number) => new THREE.MeshBasicMaterial({ color: c })
   const ghost = (m: THREE.Mesh) => { const mat = m.material as THREE.MeshLambertMaterial; mat.transparent = true; mat.opacity = 0; mat.depthWrite = false; return m } // alvo de clique invisível
 
   // caixa: centro em x/z, y = base
   const box = (w: number, h: number, d: number, m: number | THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = root) => {
-    const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), typeof m === 'number' ? lm(m) : m)
+    const geo = new THREE.BoxGeometry(w, h, d), mat = typeof m === 'number' ? lm(m) : m
+    if ((mat as THREE.MeshStandardMaterial).normalMap) metersUV(geo, w, h, d)
+    const o = new THREE.Mesh(geo, mat)
     o.position.set(x, y + h / 2, z)
     parent.add(o)
     return o
@@ -834,8 +837,8 @@ export function buildProps(scene: THREE.Scene) {
   }
   const manga = () => { if (giveItem('manga')) toast('Pegou uma manga 🥭') }
   const mangueira = (x: number, z: number, s: number) => {
-    cyl(0.2 * s, 1.8 * s, 0x5a3a22, x, 0, z)
-    for (const [ox, oy, oz, r] of [[0, 2.5, 0, 1.2], [0.8, 2.2, 0.3, 0.9], [-0.8, 2.3, -0.2, 1.0], [0.2, 3.2, -0.5, 0.8], [-0.3, 2.1, 0.9, 0.8]]) act(ball(r * s, 0x2f6b2f, x + ox * s, oy * s, z + oz * s), 'Pegar manga', manga)
+    cyl(0.2 * s, 1.8 * s, barkMat(), x, 0, z)
+    for (const [ox, oy, oz, r] of [[0, 2.5, 0, 1.2], [0.8, 2.2, 0.3, 0.9], [-0.8, 2.3, -0.2, 1.0], [0.2, 3.2, -0.5, 0.8], [-0.3, 2.1, 0.9, 0.8]]) { const cr = crown(r * s, ox + oz); cr.position.set(x + ox * s, oy * s, z + oz * s); scene.add(cr); act(cr, 'Pegar manga', manga) }
     for (let i = 0; i < 9; i++) act(ball(0.1, 0xf0a020, x + Math.cos(i * 2.4) * 1.2 * s, (1.7 + (i % 3) * 0.4) * s, z + Math.sin(i * 2.4) * 1.2 * s), 'Pegar manga', manga) // mangas
     block(x - 0.3, z - 0.3, x + 0.3, z + 0.3, 3)
   }
@@ -971,7 +974,9 @@ export function buildProps(scene: THREE.Scene) {
       ? [...tri(c4, c3, r2, c4, r2, r1), ...tri(c2, c1, r1, c2, r1, r2), ...tri(c1, c4, r1), ...tri(c3, c2, r2)]
       : [...tri(c2, c3, r2, c2, r2, r1), ...tri(c4, c1, r1, c4, r1, r2), ...tri(c1, c2, r1), ...tri(c3, c4, r2)]
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals()
-    const mesh = new THREE.Mesh(geo, roofMats[color] ??= new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })); g.add(mesh)
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(pos.filter((_, i) => i % 3 !== 1).map((v) => v / 1.2), 2)) // UV planar (x, z) em metros pra textura da telha
+    const red = (color >> 16 & 255) > (color >> 8 & 255) * 1.4 // telha vermelha fica natural; as cinzas tingem a textura
+    const mesh = new THREE.Mesh(geo, roofMats[color] ??= pbr('clay_roof_tiles_02', red ? 0xffffff : color, 1, THREE.DoubleSide)); g.add(mesh)
     const sw = Math.abs(Math.sin(g.rotation.y)) > 0.5, ex = sw ? hz : hx, ez = sw ? hx : hz // o telhado vira superfície pisável
     roofRects.push({ x0: g.position.x - ex, x1: g.position.x + ex, z0: g.position.z - ez, z1: g.position.z + ez, y0, y1 })
     return mesh
@@ -990,7 +995,7 @@ export function buildProps(scene: THREE.Scene) {
     box(0.25, 2.0, w + 0.6, o.wall ?? 0xd8cdb8, wx, 0, 0, g)
     block(...wrect(x, z, rot, 0, 0, d / 2, w / 2), 3.2); block(...wrect(x, z, rot, wx, 0, 0.125, (w + 0.6) / 2), 2.0) // casa e muro: sólidos, dá pra subir (muro 2 m → casa 3,2 m → telhado)
     const gp = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.7), o.gate ? gateMat(o.gate) : lm(0x4b5a63)); gp.position.set(wx - 0.14, 0.9, w * 0.1); gp.rotation.y = Math.PI / 2; g.add(gp)
-    if (Math.abs(Math.sin(x * 3.1 + z * 5.7)) > 0.6) { cyl(0.12, 1.6, 0x5a3a22, -d / 2 - 3, 0, 0.5, g); const cr = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 6), lm(0x2f6b2f)); cr.position.set(-d / 2 - 3, 2.6, 0.5); g.add(cr) } // árvore no quintal
+    if (Math.abs(Math.sin(x * 3.1 + z * 5.7)) > 0.6) { cyl(0.12, 1.6, barkMat(), -d / 2 - 3, 0, 0.5, g); const cr = crown(1.5, d); cr.position.set(-d / 2 - 3, 2.6, 0.5); g.add(cr) } // árvore no quintal
     if (o.simple) return                                                                                           // casas longe: sem detalhes
     if (d > w && (o.solar ?? i % 3 === 1)) { const sp = box(Math.min(2.6, d * 0.4), 0.06, 1.2, 0x1b3a73, 0, 3.95, w * 0.17, g); sp.rotation.x = Math.atan(1.3 / (w / 2 + 0.25)) } // placa solar no telhado
     box(0.06, 2.1, 0.95, 0x6b3a1e, d / 2 + 0.01, 0, -w * 0.28, g)                                                   // porta
@@ -1001,8 +1006,8 @@ export function buildProps(scene: THREE.Scene) {
     if (o.tank) { box(1.2, 1.1, 1.2, 0xcdbb9a, -d / 2 + 1, 3.2, -w * 0.2, g); cyl(0.55, 0.9, 0x2a5db0, -d / 2 + 1, 4.3, -w * 0.2, g) } // caixa d'água azul
     if (o.tree) { // árvore de copa redonda na calçada (casas de frente viradas pra -x)
       const tx = d / 2 + 2.6, tz = w * 0.3
-      cyl(0.12, 1.8, 0x5a3a22, tx, 0, tz, g)
-      for (const [dx, dy, dz, rr] of [[0, 2.6, 0, 1.2], [0.5, 2.2, 0.4, 0.9], [-0.5, 2.3, -0.3, 0.9]]) { const m = new THREE.Mesh(new THREE.SphereGeometry(rr, 10, 8), lm(0x2f6b2f)); m.position.set(tx + dx, dy, tz + dz); g.add(m) }
+      cyl(0.12, 1.8, barkMat(), tx, 0, tz, g)
+      for (const [dx, dy, dz, rr] of [[0, 2.6, 0, 1.2], [0.5, 2.2, 0.4, 0.9], [-0.5, 2.3, -0.3, 0.9]]) { const m = crown(rr, dx + dz + tz); m.position.set(tx + dx, dy, tz + dz); g.add(m) }
       if (rot === Math.PI) block(x - tx - 0.3, z - tz - 0.3, x - tx + 0.3, z - tz + 0.3, 3)
     }
   }
