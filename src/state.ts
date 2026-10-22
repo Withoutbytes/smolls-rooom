@@ -21,6 +21,7 @@ export const state = {
   power: true,
   internet: true,     // roteador ligado
   tvBlocked: false,   // TV bloqueada no roteador        // disjuntor geral da casa
+  smollRed: false, // de cueca vermelha (segunda skin 3D)
   smollShorts: false, // de bermuda (true) ou de calça jeans (false)
   editing: false,   // editor de código aberto: o jogo ignora o teclado
   cmd: (_c: string): unknown => undefined,   // smoll.ts liga: stand/sit/sip/wave/laugh/point/think/shrug/facepalm/stretch/dance/thumbs/scratch

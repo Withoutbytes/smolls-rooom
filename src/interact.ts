@@ -40,7 +40,9 @@ const root = (): Node => ({
     { t: 'Faz um bypass pra mim', go: bypass },
     { t: state.smollStanding ? 'Senta de volta' : 'Levanta aí', fn: () => { const up = cmd('stand'); show({ say: up ? 'Levantando. Minha coluna agradece.' : 'Voltando pro PC. O bug não vai se resolver sozinho.', opts: [back] }) } },
     { t: state.smollShorts ? 'Troca a bermuda por uma calça' : 'Troca a calça por uma bermuda', fn: () => { const to = cmd('shorts'); show({ say: to ? 'Tá calor mesmo. Fecha o olho aí que eu vou trocar. Já volto.' : 'Vou botar a calça. Deixa eu ir ali.', opts: [back] }) } },
+    { t: state.smollRed ? 'Manda ele se vestir' : 'Pede pra ele ficar de calcinha vermelha', fn: () => { const to = cmd('red'); show({ say: to ? 'Quê?! Tá bom… mas ninguém tira foto.' : 'Obrigado. Eu também tava com vergonha.', opts: [back] }) } },
     { t: 'Pede pra ele fazer algo…', go: tasks },
+    { t: '🛏️ Poses na cama', go: poses },
     { t: 'Faz uma dancinha', fn: () => { cmd('dance'); show({ say: 'Bora! Ninguém filma, por favor.', opts: [back] }) } },
     { t: 'Conta uma piada', fn: () => { cmd('laugh'); show({ say: pick(['Por que o programador confunde Halloween com Natal? Porque 31 OCT = 25 DEC.', 'São dois bugs num bar. O terceiro é o barman: não reproduz.', 'Funciona na minha máquina. Vamos enviar a minha máquina então.']), opts: [back] }) } },
     { t: 'Pede um café pra mim', fn: () => { cmd('sip'); state.drinks++; show({ say: `Peguei dois. Um pra mim e um pra você. Tá na sua conta. (+1 bebida 🥤 ${state.drinks})`, opts: [back] }) } },
@@ -50,8 +52,8 @@ const root = (): Node => ({
 })
 const back: Opt = { t: 'Voltar', go: root }
 // pedidos: o Smoll levanta, vai até o objeto, usa de verdade e volta pro PC
+const ask = (c: string, ok: string[]): Opt['fn'] => () => { const r = cmd(c); show({ say: r === false ? 'Agora não dá, tô no meio de uma coisa.' : pick(ok), opts: [back] }) }
 const tasks = (): Node => {
-  const ask = (c: string, ok: string[]): Opt['fn'] => () => { const r = cmd(c); show({ say: r === false ? 'Agora não dá, tô no meio de uma coisa.' : pick(ok), opts: [back] }) }
   return {
     say: 'Pedido especial? Cobro em Kuat.',
     opts: [
@@ -78,6 +80,21 @@ const tasks = (): Node => {
     ],
   }
 }
+// poses na cama: ele vai até a cama (se ainda tá no PC), se deita e faz a pose. É só visual.
+const poses = (): Node => ({
+  say: 'Na cama? Ah, agora sim. Escolhe aí — mas não conta pra ninguém.',
+  opts: [
+    { t: '😴 Deitado de costas', fn: ask('pose:normal', ['Costas, mãos na barriga. Dormir é minha especialidade.', 'Posição padrão. Nada de mais.']) },
+    { t: '🦴 Pernas abertas', fn: ask('pose:spread', ['Abertura total. É a pose do "tô disponível, mas não me apressa".', 'Vidinha de cama aberta. Não julga.']) },
+    { t: '🎯 Pernas pra cima', fn: ask('pose:legsUp', ['Pernas no ar. Dizem que faz bem pra circulação. Eu não digo nada.', 'Ficou parecendo um quadro, né? Era a ideia.']) },
+    { t: '✂️ Tesoura', fn: ask('pose:scissors', ['Uma perna no ar, outra na cama. Equilíbrio é relativo.', 'Tesoura. Não pergunta, só olha.']) },
+    { t: '🌉 Ponte', fn: ask('pose:bridge', ['Ponte. Minha coluna faz isso desde que eu era dev.', 'Subo a bacia e pronto. Engenharia de corpo.']) },
+    { t: '🐾 De quatro', fn: ask('pose:quatro', ['De quatro. Não é pose de cachorro, é pose de gente.', 'Mãos e joelhos. A coluna aprova, o orgulho não.']) },
+    { t: '👶 Fetal', fn: ask('pose:curl', ['Fetal. Todo mundo dorme assim, ninguém admite.', 'Recolhido. O colchão entende.']) },
+    { t: 'Levanta da cama', fn: () => { const up = cmd('wake'); show({ say: up ? 'Levantando. O bug não vai se resolver sozinho.' : 'Agora não, tô no PC.', opts: [back] }) } },
+    back,
+  ],
+})
 const codes = (): Node => ({
   say: 'Tenho uns snippets aqui. Por sua conta e risco.',
   opts: [

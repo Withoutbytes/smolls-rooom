@@ -29,8 +29,61 @@ const SIT_EDGE: Pose = {
   TL: [0.05, -0.75, 0.66], SL: [0.02, -1, -0.05], FL: [0, -0.1, 1],
   TR: [-0.05, -0.75, 0.66], SR: [-0.02, -1, -0.05], FR: [0, -0.1, 1],
 }
-export function bedPose(sit: number, lie: number): Pose {
-  const p = clonePose(STAND); lerpPose(p, SIT_EDGE, sit); lerpPose(p, LYING, lie); return p
+// ---- poses na cama ----
+// Vetores no espaço local do modelo: +y é o eixo do corpo (pra cabeça), -y pros pés,
+// +x = esquerda do personagem, +z = frente. Deitado, o grupo M está girado 90° em z, então +z local vira
+// "pra cima" no mundo e -y local é o comprimento da cama (pros pés). O colchão fica em z ≈ -0,18 local.
+export type BedPose = 'normal' | 'spread' | 'legsUp' | 'scissors' | 'bridge' | 'curl' | 'quatro'
+const nrm = (v: V3): V3 => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l] }
+const bedOf = (o: Partial<Pose>): Pose => ({ ...clonePose(LYING), ...o })
+// cada pose é uma LYING com as pernas (e às vezes a bacia) mudadas. alvo = direção de cada segmento.
+const BED: Record<BedPose, Pose> = {
+  normal: clonePose(LYING),
+  // perna aberta: pernas abrindo pros lados do colchão, joelhos levemente dobrados
+  spread: bedOf({
+    TL: nrm([0.7, -0.71, 0.05]), SL: nrm([0.5, -0.87, -0.05]), FL: nrm([0.3, -0.9, 0.1]),
+    TR: nrm([-0.7, -0.71, 0.05]), SR: nrm([-0.5, -0.87, -0.05]), FR: nrm([-0.3, -0.9, 0.1]),
+  }),
+  // pernas pra cima: as duas subem, levemente abertas (o clássico "perna no ar")
+  legsUp: bedOf({
+    TL: nrm([0.35, 0.1, 0.93]), SL: nrm([0.3, 0.2, 0.93]), FL: nrm([0.2, 0.3, 0.95]),
+    TR: nrm([-0.35, 0.1, 0.93]), SR: nrm([-0.3, 0.2, 0.93]), FR: nrm([-0.2, 0.3, 0.95]),
+    hp: 0.2,
+  }),
+  // tesoura: uma perna no ar, a outra esticada na cama
+  scissors: bedOf({
+    TL: nrm([0.2, 0.05, 0.98]), SL: nrm([0.2, 0.05, 0.98]), FL: nrm([0.1, 0.2, 0.97]),
+    TR: nrm([0.15, -0.98, 0.05]), SR: nrm([0.15, -0.98, 0.05]), FR: nrm([0.1, -0.95, 0.3]),
+  }),
+  // ponte: bacia subida, joelhos e pés apoiados, tronco arqueado (ombros no colchão)
+  bridge: bedOf({
+    rz: 0.25, lean: -0.6, hp: 0.35,
+    TL: nrm([0.4, -0.6, -0.7]), SL: nrm([0.2, -0.9, -0.33]), FL: nrm([0.1, -0.9, -0.3]),
+    TR: nrm([-0.4, -0.6, -0.7]), SR: nrm([-0.2, -0.9, -0.33]), FR: nrm([-0.1, -0.9, -0.3]),
+  }),
+  // de quatro: joelhos e mãos no colchão, bacia e peito suspensos, costas pra cima.
+  // O roll π gira o corpo em torno da própria espinha (fica pronado): aí -z local é "pra baixo" e
+  // braços e coxas apontando pra -z alcançam o colchão. O lean vem negativo porque, com o corpo rolado,
+  // o eixo x do tronco está invertido — serve pra deixar o ombro mais alto que o quadril (o braço tem
+  // 0,68 m contra 0,35 m de coxa), como quem engatinha de verdade.
+  quatro: bedOf({
+    roll: Math.PI, rz: 0.22, lean: -0.47, hp: 0.2,
+    L: limb([0.25, 0.1, -0.96], [0.2, 0.1, -0.97], [0.2, 0.1, -0.97]),
+    R: limb([-0.25, 0.1, -0.96], [-0.2, 0.1, -0.97], [-0.2, 0.1, -0.97]),
+    TL: nrm([0.3, 0.15, -0.94]), SL: nrm([0.2, -0.7, 0.71]), FL: nrm([0.1, -0.3, -0.95]),
+    TR: nrm([-0.3, 0.15, -0.94]), SR: nrm([-0.2, -0.7, 0.71]), FR: nrm([-0.1, -0.3, -0.95]),
+  }),
+  // fetal: joelhos dobrados pra dentro, pernas recolhidas (braços ficam como em LYING)
+  curl: bedOf({
+    TL: nrm([0.1, 0.8, 0.6]), SL: nrm([0.1, -0.7, -0.7]), FL: nrm([0.1, -0.5, -0.8]),
+    TR: nrm([-0.1, 0.8, 0.6]), SR: nrm([-0.1, -0.7, -0.7]), FR: nrm([-0.1, -0.5, -0.8]),
+  }),
+}
+export const BED_POSES = Object.keys(BED) as BedPose[]
+export function bedPose(sit: number, lie: number, pose: BedPose = 'normal'): Pose {
+  const p = clonePose(STAND); lerpPose(p, SIT_EDGE, sit); lerpPose(p, LYING, lie)
+  if (pose !== 'normal' && lie > 0.05) lerpPose(p, BED[pose], Math.min(1, lie)) // só quando já deitado
+  return p
 }
 
 export type Clip = 'sip' | 'wave' | 'laugh' | 'point' | 'think' | 'shrug' | 'facepalm' | 'stretch' | 'dance' | 'thumbs' | 'scratch'
@@ -94,8 +147,8 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
   let walkPhase = 0
   mug.visible = false
   const api = {
-    /** controlado pelo smoll.ts: andando até a cama/PC ou deitado */
-    loco: { walk: 0, lying: false, bed: null as null | { sit: number; lie: number } },
+    /** controlado pelo smoll.ts: andando até a cama/PC ou deitado. pose = a pose na cama */
+    loco: { walk: 0, lying: false, pose: 'normal' as BedPose, bed: null as null | { sit: number; lie: number } },
     get standing() { return standing },
     stand(on: boolean) { standing = on; clip = null },
     play(c: Clip) {
@@ -116,8 +169,9 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
         idleT = 7 + Math.random() * 8
         api.play((['sip', 'think', 'stretch', 'scratch'] as Clip[])[Math.floor(Math.random() * 4)])
       }
-      const p = busy ? (api.loco.bed ? bedPose(api.loco.bed.sit, api.loco.bed.lie) : api.loco.lying ? clonePose(LYING) : walkPose(REST, (walkPhase += dt * 5.5), 1, t)) : clonePose(standing ? STAND : SIT)
+      const p = busy ? (api.loco.bed ? bedPose(api.loco.bed.sit, api.loco.bed.lie, api.loco.pose) : api.loco.lying ? bedPose(1, 1, api.loco.pose) : walkPose(REST, (walkPhase += dt * 5.5), 1, t)) : clonePose(standing ? STAND : SIT)
       if (api.loco.lying) p.lean += Math.sin(t * 1.6) * 0.012 // respira dormindo
+      else if (api.loco.bed) p.lean += Math.sin(t * 1.8) * 0.01 // respira enquanto se acomoda
       if (!busy && !standing && !clip) { // digitando
         p.L.f[1] += Math.sin(t * 13) * 0.05; p.R.f[1] += Math.sin(t * 11 + 1) * 0.05; p.L.h[1] += Math.sin(t * 17) * 0.08
         p.hy += Math.sin(t * 0.5) * 0.25; p.hp += Math.sin(t * 0.8) * 0.04       // olha de uma tela pra outra

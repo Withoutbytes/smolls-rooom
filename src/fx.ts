@@ -36,12 +36,14 @@ export function initFx(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
   composer.setPixelRatio(0.75) // renderiza os efeitos em 75% e amplia: o maior ganho de FPS; suba pra 1 em GPU forte
   composer.addPass(new RenderPass(scene, camera))
   const save = new SavePass(); composer.addPass(save)
-  const ao = new GTAOPass(scene, camera, w, h, undefined, { samples: 8 }, { samples: 8 }); ao.blendIntensity = 0.85; composer.addPass(ao)
+  const ao = new GTAOPass(scene, camera, w, h, undefined, { samples: 8 }, { samples: 8 }); ao.blendIntensity = 0.85; ao.enabled = false; composer.addPass(ao) // AO redesenha a cena toda (~14 ms de CPU): desligado por padrão, F3 liga
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.18, 0.5, 1.0))
   composer.addPass(new OutputPass())
   const fin = new ShaderPass(FINAL); fin.uniforms.tAlpha.value = save.renderTarget.texture; composer.addPass(fin)
   let on = true
   return {
+    toggleAo() { return (ao.enabled = !ao.enabled) },
+    get ao() { return ao.enabled },
     grade(sat: number) { fin.uniforms.sat.value = sat },
     toggle() { return (on = !on) },
     get on() { return on },

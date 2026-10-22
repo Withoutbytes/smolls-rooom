@@ -121,6 +121,7 @@ Mira no objeto → `[E] ação`. Armários e guarda-roupa abrem, geladeiras (+be
   5. rindo
 - Estados: `digitando → notou_jogador → virou → conversando → volta_digitando`.
 - Interações (tecla `E` olhando pra ele): conversar (menu de falas), pedir café, mostrar a tela do PC, chamar pra jogar, irritar (ele reclama "tô codando!"). Cada fala é uma linha em `dialogos.json`.
+- **Poses na cama** (`BedPose` em `src/smollAnim.ts`, comando `state.cmd('pose:<nome>')`): `normal`, `spread` (perna aberta), `legsUp` (pernas pra cima), `scissors` (tesoura), `bridge` (ponte), `quatro` (de quatro — usa o `roll` novo do rig em `src/rig.ts` pra girar o corpo em torno da própria espinha), `curl` (fetal). Menu do Smoll → "🛏️ Poses na cama"; se ele ainda tá no PC, ele vai até a cama antes de fazer. Também dá pra chamar pelo código do PC: `smoll.pose("spread")`. Para ver as poses isoladas: `tools/pose-preview.html?pose=spread`.
 
 ## 6. Fases
 

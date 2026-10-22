@@ -23,11 +23,14 @@ export const metersUV = (g: THREE.BoxGeometry, w: number, h: number, d: number) 
 }
 
 // material de um móvel/objeto a partir da cor: tons de madeira ganham textura de madeira, o resto vira PBR liso (brilho de tinta/plástico).
-// Sempre devolve um material novo (o jogo muta cor/opacidade de alguns), só as texturas são compartilhadas.
+// Compartilhado por cor: milhares de objetos com o mesmo material = poucas trocas de estado na GPU (era o gargalo de FPS).
+// Quem muda cor/opacidade de um objeto depois de criado precisa antes de `own()` (props.ts).
+const surfaces = new Map<number, THREE.MeshStandardMaterial>()
 export const surface = (color: number): THREE.MeshStandardMaterial => {
+  let m = surfaces.get(color); if (m) return m
   const c = new THREE.Color(color), { h, s, l } = c.getHSL({ h: 0, s: 0, l: 0 })
-  if (h >= 0.05 && h <= 0.12 && s >= 0.25 && s <= 0.6 && l >= 0.1 && l <= 0.55) return pbr('dark_wooden_planks', c.multiplyScalar(2.4).getHex()).clone()
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05 })
+  m = h >= 0.05 && h <= 0.12 && s >= 0.25 && s <= 0.6 && l >= 0.1 && l <= 0.55 ? pbr('dark_wooden_planks', c.multiplyScalar(2.4).getHex()) : new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05 })
+  surfaces.set(color, m); return m
 }
 
 // ---------- árvores ----------

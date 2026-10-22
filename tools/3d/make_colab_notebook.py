@@ -18,7 +18,7 @@ OUT = os.path.join(HERE, "smoll_skin_red_hq.ipynb")
 NAME = "smoll_skin_red"
 
 CODE = r'''# 1) instala e compila (8-10 min, só na primeira vez)
-import os, subprocess, sysconfig, types
+import os, subprocess, sys, sysconfig, types
 def sh(c, cwd=None): subprocess.check_call(c, shell=True, cwd=cwd)
 R = '/content/Hunyuan3D-2.1'
 if not os.path.exists(R):

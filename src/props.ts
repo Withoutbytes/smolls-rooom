@@ -65,7 +65,8 @@ export function buildProps(scene: THREE.Scene) {
   const block = (x0: number, z0: number, x1: number, z1: number, top = 2.6, bottom = 0) => blockers.push([x0 + ox, z0, x1 + ox, z1, top, bottom])
   const lm = (c: number) => surface(c)
   const bm = (c: number) => new THREE.MeshBasicMaterial({ color: c })
-  const ghost = (m: THREE.Mesh) => { const mat = m.material as THREE.MeshLambertMaterial; mat.transparent = true; mat.opacity = 0; mat.depthWrite = false; return m } // alvo de clique invisível
+  const own = <T extends THREE.Mesh>(m: T) => ((m.material = (m.material as THREE.Material).clone()), m) // materiais por cor são compartilhados: quem vai mudar cor/opacidade pede o seu
+  const ghost = (m: THREE.Mesh) => { const mat = (own(m).material) as THREE.MeshLambertMaterial; mat.transparent = true; mat.opacity = 0; mat.depthWrite = false; return m } // alvo de clique invisível
 
   // caixa: centro em x/z, y = base
   const box = (w: number, h: number, d: number, m: number | THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = root) => {
@@ -102,6 +103,8 @@ export function buildProps(scene: THREE.Scene) {
 
   // armário com portas que abrem (face = lado da frente: +1 → +z, -1 → -z)
   const doors: { g: THREE.Group; a: number }[] = []
+  const cabinets: { x: number; z: number; set: (v: boolean) => void }[] = [] // o Smoll abre os que estão perto dele (world.acao.armario)
+  world.acao.armario = ((x = 0, z = 0, ms = 4000) => cabinets.filter((c) => Math.hypot(c.x - x, c.z - z) < 2.2).forEach((c) => { c.set(true); setTimeout(() => c.set(false), ms) })) as () => void
   const cabinet = (cx: number, y: number, cz: number, w: number, h: number, d: number, face: 1 | -1, c: number, msgs: string[]) => {
     const t = 0.03
     box(w, h, t, 0x2a1c10, cx, y, cz - face * (d / 2 - t / 2))
@@ -111,14 +114,15 @@ export function buildProps(scene: THREE.Scene) {
     for (let i = 0; i < 3; i++) box(0.18, 0.22, 0.18, [0xc0392b, 0xf1c40f, 0x2a5db0][i], cx - 0.3 + i * 0.3, y + h / 2 + t, cz)
     let open = false
     const mine: typeof doors = []
+    const setOpen = (v: boolean) => { open = v; mine.forEach((m, i) => (m.a = open ? (i ? 1 : -1) * 1.9 * face : 0)) }
+    cabinets.push({ x: cx, z: cz, set: setOpen })
     for (const s of [-1, 1]) {
       const g = new THREE.Group(); g.position.set(cx + (s * w) / 2, y, cz + (face * d) / 2); scene.add(g)
       const dm = box(w / 2 - 0.01, h - 0.02, t, c, (-s * w) / 4, 0.01, (face * t) / 2, g)
       box(0.03, 0.14, 0.03, 0xc9b037, -s * (w / 2 - 0.07), h / 2 - 0.07, face * 0.04, g)
       const e = { g, a: 0 }; doors.push(e); mine.push(e)
       act(dm, () => (open ? 'Fechar armário' : 'Abrir armário'), () => {
-        open = !open
-        mine.forEach((m, i) => (m.a = open ? (i ? 1 : -1) * 1.9 * face : 0))
+        setOpen(!open)
         if (open) toast(pick(msgs))
       })
     }
@@ -202,8 +206,10 @@ export function buildProps(scene: THREE.Scene) {
     }
     let open = false
     const e = { g: door, a: 0 }; doors.push(e)
+    const setOpen = (v: boolean) => { open = v; e.a = open ? (stock === 'cozinha' ? Math.PI : 1.9) : 0; lightF.intensity = open ? 1.6 : 0 }
+    if (stock === 'cozinha') world.acao.geladeira = ((ms = 4000) => { setOpen(true); setTimeout(() => setOpen(false), ms) }) as () => void // o Smoll abre e fecha a geladeira
     act(panel, () => (open ? 'Fechar geladeira' : 'Abrir geladeira'), () => {
-      open = !open; e.a = open ? (stock === 'cozinha' ? Math.PI : 1.9) : 0; lightF.intensity = open ? 1.6 : 0
+      setOpen(!open)
       if (open) toast(pick(stock === 'cozinha' ? ['Kuat gelada, leite, ovos e as mangas do quintal.', 'Tem Kuat de sobra. Aproveita.', 'Gelada. Cheira a Kuat e cuscuz.'] : ['Só cerveja, pequi e uma Kuat esquecida.', 'Cheiro de fim de semana.']))
     })
   }
@@ -318,12 +324,21 @@ export function buildProps(scene: THREE.Scene) {
   const painel = tex(300, 120, (g, w, h) => {
     g.fillStyle = '#9a7b4f'; g.fillRect(0, 0, w, h)
     g.fillStyle = '#6b522f'; for (let x = 8; x < w; x += 16) for (let y = 8; y < h; y += 16) g.fillRect(x, y, 2, 2)
-    g.fillStyle = '#e8e8e8'; g.fillRect(30, 20, 8, 70); g.fillRect(24, 14, 20, 12)     // chave
-    g.fillStyle = '#c0392b'; g.fillRect(90, 30, 40, 12); g.fillStyle = '#6b4a2a'; g.fillRect(105, 42, 8, 50) // martelo
-    g.fillStyle = '#f1c40f'; g.fillRect(170, 20, 12, 80); g.fillStyle = '#222'; g.fillRect(170, 90, 12, 16) // chave de fenda
-    g.strokeStyle = '#c0c0c0'; g.lineWidth = 5; g.beginPath(); g.arc(240, 50, 24, 0, 7); g.stroke()          // serra
   })
   wallPlane(3.0, 1.2, painel, 4.75, 1.65, 1.01, 0)
+  { // ferramentas 3D penduradas no painel (antes eram um desenho): dá pra pegar cada uma (E); voltam pro painel depois de 20 s
+    const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.4, roughness: 0.35 }), dark = new THREE.MeshStandardMaterial({ color: 0x4a4e54, metalness: 0.4, roughness: 0.4 })
+    const z = 1.04
+    const tool = (label: string, id: () => string, msgs: string[], build: (g: THREE.Group) => void) => { // `id` é função: os itens são definidos mais abaixo
+      const g = new THREE.Group(); scene.add(g); build(g)
+      act(g, label, () => { if (!giveItem(id())) return; toast(pick(msgs) + ` (+ ${ITEMS[id()].name} 🎒)`); g.visible = false; setTimeout(() => (g.visible = true), 20000) })
+    }
+    tool('Pegar a chave de boca', () => idChaveBoca, ['Chave de boca 10. A que sempre some quando precisa.', 'Chave de boca. Pesada o bastante pra virar martelo.'], (g) => { box(0.04, 0.5, 0.015, steel, 3.59, 1.4, z, g); box(0.12, 0.04, 0.015, steel, 3.59, 1.9, z, g); box(0.03, 0.09, 0.015, steel, 3.545, 1.94, z, g); box(0.03, 0.09, 0.015, steel, 3.635, 1.94, z, g) })
+    tool('Pegar o martelo', () => idMartelo, ['Martelo de unha. Resolve o problema do jeito que dá.', 'Martelo: o botão de reiniciar da oficina.'], (g) => { cyl(0.022, 0.42, 0x6b4a2a, 4.35, 1.4, z, g); box(0.2, 0.075, 0.05, dark, 4.35, 1.82, z, g); box(0.07, 0.05, 0.04, dark, 4.49, 1.83, z, g) })
+    tool('Pegar a chave de fenda', () => idChave, ['Chave de fenda de cabo amarelo. Já abriu muita coisa que não devia.'], (g) => { cyl(0.03, 0.2, 0xf1c40f, 5.01, 1.85, z, g); cyl(0.034, 0.03, 0x222222, 5.01, 1.82, z, g); cyl(0.008, 0.3, steel, 5.01, 1.52, z, g) })
+    tool('Pegar a serra-copo', () => idSerraCopo, ['Serra-copo. Faz buraco redondo em tudo, inclusive no que não devia.'], (g) => { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.018, 8, 36), steel); ring.position.set(5.65, 1.7, z); g.add(ring) })
+    for (const [x, y] of [[3.59, 1.9], [4.35, 1.8], [5.01, 2.02], [5.65, 1.94]]) { const hook = cyl(0.007, 0.05, dark, x, y, 1.02); hook.rotation.x = Math.PI / 2 } // pinos do painel
+  }
   block(3.0, 1.0, 6.5, 1.75, 0.93)                                         // bancada
 
   // estante (parede sul, oeste da porta)
@@ -712,7 +727,7 @@ export function buildProps(scene: THREE.Scene) {
     washing = 4; sinkFlow.visible = true; toast('Lavando a louça… 🧽')
   }
   ticks.push((dt) => { if (washing > 0 && (washing -= dt) <= 0) { sinkFlow.visible = false; clean = Math.min(6, clean + dirty); dirty = 0; syncDishes(); toast('Louça lavada! Ficou brilhando. ✨') } })
-  const sinkHit = box(0.55, 0.3, 0.4, 0xffffff, 16.55, 0.9, 1.3); (sinkHit.material as THREE.MeshLambertMaterial).transparent = true; (sinkHit.material as THREE.MeshLambertMaterial).opacity = 0; (sinkHit.material as THREE.MeshLambertMaterial).depthWrite = false
+  const sinkHit = own(box(0.55, 0.3, 0.4, 0xffffff, 16.55, 0.9, 1.3)); (sinkHit.material as THREE.MeshLambertMaterial).transparent = true; (sinkHit.material as THREE.MeshLambertMaterial).opacity = 0; (sinkHit.material as THREE.MeshLambertMaterial).depthWrite = false
   act(sinkHit, () => (dirty ? `Lavar a louça (${dirty} peças sujas)` : 'Pia limpa'), wash, (id) => {
     if (id === idPanela || id === idFrig) { toast(dirtyTool.delete(id) ? `${ITEMS[id].name} lavada. Brilhando. ✨` : `${ITEMS[id].name} já tava limpa.`); clink(); return true }
     if (id === idPrato) { if (dirty) { dirty--; clean = Math.min(6, clean + 1); syncDishes(); clink(); toast('Lavou um prato da pilha e foi pro escorredor. 🧽') } else toast('Não tem prato sujo na pia.'); return true }
@@ -755,7 +770,7 @@ export function buildProps(scene: THREE.Scene) {
   const pans: Record<string, Pan> = {}
   const mkPan = (id: string, x: number, z: number, rot: number, nome: string, top: number) => {
     const g = new THREE.Group(); g.position.set(x, 0.92, z); g.rotation.y = rot; scene.add(g); ITEMS[id].build!(g)
-    const p: Pan = { g, on: true, ready: '', food: cyl(0.075, 0.02, 0xf2d06a, 0, top, 0, g) }; p.food.visible = false; pans[id] = p
+    const p: Pan = { g, on: true, ready: '', food: own(cyl(0.075, 0.02, 0xf2d06a, 0, top, 0, g)) }; p.food.visible = false; pans[id] = p
     act(g, () => (p.ready ? `Servir ${ITEMS[p.ready].name}` : `Pegar ${nome}${dirtyTool.has(id) ? ' (suja)' : ''}`), () => {
       if (p.ready) { if (giveItem(p.ready)) { toast(`Serviu ${ITEMS[p.ready].name}. 🍽️`); p.ready = ''; p.food.visible = false } return }
       if (cooking > 0) { toast('Tá fervendo! Espera acabar de cozinhar.'); return }
@@ -875,7 +890,7 @@ export function buildProps(scene: THREE.Scene) {
   cyl(0.02, 0.3, 0xcccccc, 27.2, 1.0, 15.2)
   block(27.1, 14.75, 27.8, 15.65, 0.85)
   // churrasqueira (muro sul)
-  box(1.1, 0.9, 0.55, 0xa0522d, 26.2, 0, 15.65); const coal = box(0.95, 0.04, 0.4, 0x222222, 26.2, 0.9, 15.65)
+  box(1.1, 0.9, 0.55, 0xa0522d, 26.2, 0, 15.65); const coal = own(box(0.95, 0.04, 0.4, 0x222222, 26.2, 0.9, 15.65))
   const fire = light(0xff6a20, 0, 5, 26.2, 1.3, 15.3)
   box(0.25, 1.4, 0.25, 0xa0522d, 26.2, 0, 15.85)
   block(25.6, 15.3, 26.8, 15.95, 0.9)
@@ -1282,6 +1297,8 @@ export function buildProps(scene: THREE.Scene) {
 
   // ---------- OFICINA VIVA (x 1–7, z 1–6) ----------
   const idChave = item('Chave de fenda', (g) => { box(0.02, 0.02, 0.09, 0xf1c40f, 0, 0, 0, g); box(0.008, 0.008, 0.07, 0xcccccc, 0, 0.006, -0.075, g) })
+  const idChaveBoca = item('Chave de boca', (g) => { box(0.02, 0.012, 0.2, 0xb8bcc2, 0, 0, 0, g); box(0.07, 0.012, 0.03, 0xb8bcc2, 0, 0, -0.11, g) })
+  const idSerraCopo = item('Serra-copo', (g) => { cyl(0.05, 0.03, 0xb8bcc2, 0, 0, 0, g) })
   const idMartelo = item('Martelo', (g) => { box(0.02, 0.02, 0.2, 0x6b4a2a, 0, 0, 0, g); box(0.09, 0.04, 0.04, 0x555a60, 0, 0, -0.11, g) })
   const idAlicate = item('Alicate', (g) => { box(0.02, 0.012, 0.12, 0xc0392b, -0.012, 0, 0, g); box(0.02, 0.012, 0.12, 0xc0392b, 0.012, 0, 0, g); box(0.05, 0.012, 0.04, 0x888888, 0, 0, -0.08, g) })
   const idFita = item('Fita isolante', (g) => { cyl(0.035, 0.025, 0x111111, 0, 0, 0, g); cyl(0.02, 0.027, 0x888888, 0, 0, 0, g) })
@@ -1341,7 +1358,7 @@ export function buildProps(scene: THREE.Scene) {
     if (id === idMulti) { toast(`Multímetro na ponta de prova: ${(4.9 + Math.random() * 0.2).toFixed(2)} V. Tá certinho. 📟`); return true }
     toast('Não dá pra medir isso.'); return true
   })
-  const solBase = box(0.1, 0.02, 0.15, 0x222222, 1.3, 0.9, 2.95); cyl(0.012, 0.12, 0x555555, 1.3, 0.92, 2.9); const tip = sph(0.014, 0x555555, 1.3, 1.07, 2.9, scene)
+  const solBase = box(0.1, 0.02, 0.15, 0x222222, 1.3, 0.9, 2.95); cyl(0.012, 0.12, 0x555555, 1.3, 0.92, 2.9); const tip = own(sph(0.014, 0x555555, 1.3, 1.07, 2.9, scene))
   let solT = 0
   const smoke = Array.from({ length: 6 }, () => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5, depthWrite: false })); m.visible = false; scene.add(m); return m })
   ticks.push((dt) => {
@@ -1731,7 +1748,7 @@ export function buildProps(scene: THREE.Scene) {
   const grelha: ({ m: THREE.Mesh; t: number; id: string } | null)[] = [null, null, null, null], GX = [25.85, 26.07, 26.33, 26.55]
   const flamas = [0, 1, 2, 3, 4].map((i) => { const f = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.12, 8), bm(0xff8a20)); f.position.set(25.85 + i * 0.18, 0.99, 15.5 + (i % 2) * 0.15); f.visible = false; scene.add(f); return f })
   const setFire = (on: boolean) => { fire.intensity = on ? 4 : 0; (coal.material as THREE.MeshLambertMaterial).color.set(on ? 0xff4a10 : 0x222222) }
-  const poe = (id: string, t0 = 0) => { const i = grelha.indexOf(null); if (i < 0) return false; const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.07), lm(0xd8707a)); m.position.set(GX[i], 0.96, 15.65); scene.add(m); grelha[i] = { m, t: t0, id }; return true }
+  const poe = (id: string, t0 = 0) => { const i = grelha.indexOf(null); if (i < 0) return false; const m = own(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.07), lm(0xd8707a))); m.position.set(GX[i], 0.96, 15.65); scene.add(m); grelha[i] = { m, t: t0, id }; return true }
   const resultado = (s: { t: number; id: string }) => (s.t < 8 ? s.id : s.t < 20 ? RAW[s.id] : s.t < 30 ? idPassada : idQueimada)
   ticks.push((dt) => {
     flamas.forEach((f, i) => { f.visible = fire.intensity > 0; f.scale.y = 0.8 + Math.sin(clock * 18 + i * 2) * 0.3 })

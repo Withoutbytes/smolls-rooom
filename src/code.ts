@@ -31,6 +31,7 @@ const timed = (ms: number, f: () => void) => { f(); state.until = performance.no
 
 const CMDS: [RegExp, (m: RegExpMatchArray) => string][] = [
   [new RegExp(`^smoll\\.(${SMOLL_CMDS})\\(\\)`), (m) => (state.cmd(m[1]) === false ? 'ocupado agora' : 'ok')],
+  [/^smoll\.pose\((['"])(\w+)\1\)/, (m) => (state.cmd('pose:' + m[2]) === false ? 'ocupado agora' : `pose ${m[2]}`)],
   [/^smoll\.say\((['"`])(.*)\1\)/, (m) => { toast(`Smoll: ${m[2]}`); return 'ok' }],
   [/^gate\.(open|close)\(\)/, (m) => { setGate(m[1] === 'open'); return 'ok' }],
   [/^door\.(open|close)\(\)/, (m) => { state.doorOpen = m[1] === 'open'; return 'ok' }],

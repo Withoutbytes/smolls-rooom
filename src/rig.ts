@@ -8,6 +8,7 @@ export type V3 = [number, number, number]
 export interface Limb { u: V3; f: V3; h: V3 }  // braço, antebraço, mão
 export interface Pose {
   rx: number; ry: number; rz: number            // deslocamento da bacia (unidades nativas)
+  roll: number                                  // giro do corpo em torno do próprio eixo (0 = de costas, π = de quatro/prona)
   lean: number; twist: number; side: number     // inclinação do tronco: frente, giro, lado
   hy: number; hp: number; hr: number            // cabeça: giro, pitch (+ olha pra baixo), roll
   L: Limb; R: Limb
@@ -67,7 +68,7 @@ const ramp = (v: number, a: number, b: number) => { const t = Math.min(1, Math.m
 const dirOf = (a: string, b: string): V3 => { const d = new THREE.Vector3(...J[b]).sub(new THREE.Vector3(...J[a])).normalize(); return [d.x, d.y, d.z] }
 
 export const restPose = (sp?: SkelSpec): Pose => (sp ? withSkeleton(sp, () => restPose()) : {
-  rx: 0, ry: 0, rz: 0, lean: 0, twist: 0, side: 0, hy: 0, hp: 0, hr: 0,
+  rx: 0, ry: 0, rz: 0, roll: 0, lean: 0, twist: 0, side: 0, hy: 0, hp: 0, hr: 0,
   L: { u: dirOf('shL', 'elL'), f: dirOf('elL', 'wrL'), h: dirOf('wrL', 'haL') },
   R: { u: dirOf('shR', 'elR'), f: dirOf('elR', 'wrR'), h: dirOf('wrR', 'haR') },
   TL: dirOf('hpL', 'knL'), SL: dirOf('knL', 'anL'), FL: dirOf('anL', 'toL'),
@@ -156,7 +157,9 @@ function buildRigNow(src: THREE.BufferGeometry, material: THREE.Material, spec: 
   return {
     mesh, bones,
     apply(p: Pose) {
-      bones[0].position.copy(hipsRest).add(new THREE.Vector3(p.rx, p.ry, p.rz)); bones[0].quaternion.identity(); wq.hips = new THREE.Quaternion()
+      bones[0].position.copy(hipsRest).add(new THREE.Vector3(p.rx, p.ry, p.rz))
+      // roll = virar o corpo inteiro em torno do eixo da espinha (pra ficar de quatro, π)
+      wq.hips = e(0, p.roll || 0, 0); bones[0].quaternion.copy(wq.hips)
       place('spine', 'hips', e(p.lean * 0.5, p.twist * 0.5, p.side * 0.5))
       place('chest', 'spine', e(p.lean * 0.5, p.twist * 0.5, p.side * 0.5))
       place('neck', 'chest', e(p.hp * 0.3, p.hy * 0.3, p.hr * 0.3))
@@ -168,4 +171,23 @@ function buildRigNow(src: THREE.BufferGeometry, material: THREE.Material, spec: 
       }
     },
   }
+}
+
+// Skin da cueca vermelha: malha mais estreita que a do moletom (braço e quadril em x ≈ 0,3 contra 0,39), então as juntas em x são encolhidas
+const narrow = (sp: SkelSpec, ka: number, kl: number, name: string): SkelSpec => {
+  const JL: Record<string, V3> = {}
+  for (const [k, v] of Object.entries(sp.JL)) JL[k] = [v[0] * (['sh', 'el', 'wr', 'ha'].includes(k) ? ka : kl), v[1], v[2]]
+  return { ...sp, name, JL, hand: [sp.hand[0] * ka, sp.hand[1] * ka, ...sp.hand.slice(2)] as SkelSpec['hand'] }
+}
+const RED0 = narrow(SMOLL_SKEL, 0.78, 0.82, 'smoll-red')
+// virilha dessa malha fica em y ≈ -0,42 (no moletom, -0,28): o quadril desce pra coxa dobrar na dobra da perna, e não no joelho
+export const RED_SKEL: SkelSpec = { ...RED0, JL: { ...RED0.JL, hp: [RED0.JL.hp[0], -0.32, RED0.JL.hp[2]] } }
+
+// Nessa malha a mão nasce colada na coxa: ao sentar, o braço em pose puxa a pele da coxa. Os braços ficam quase na posição de repouso (pendurados), só um pouco influenciados pela pose.
+const REST_RED = restPose(RED_SKEL)
+export function redPose(p: Pose, k = 0.15): Pose {
+  const q = clonePose(p)
+  q.ry += 0.12 * Math.min(1, Math.max(0, -p.ry / 0.264)) // virilha 0,14 mais baixa: ao sentar a bacia sobe pra coxa não afundar no assento
+  for (const S of ['L', 'R'] as const) for (const j of ['u', 'f', 'h'] as const) q[S][j] = q[S][j].map((v, i) => REST_RED[S][j][i] + (v - REST_RED[S][j][i]) * k) as V3
+  return q
 }

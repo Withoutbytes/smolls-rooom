@@ -12,6 +12,7 @@ import { loadInventory, initHeld, updateHeld } from './inventory'
 import { initPhone } from './phone'
 import './social'
 import { tv, cssR } from './tv'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { initFx } from './fx'
 import { pbr, FLOOR_TEX } from './tex'
 
@@ -28,6 +29,7 @@ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.domElement.style.cssText = 'position:fixed;inset:0;z-index:1'
 document.body.append(cssR.domElement, renderer.domElement)
 ;(window as any).__info = renderer.info // debug: chamadas de desenho e triângulos
+;(window as any).__scene = scene // debug
 
 const ambient = new THREE.AmbientLight(0xffffff, 1.4); scene.add(ambient)
 const monitorLight = new THREE.PointLight(0x66aaff, 1.2, 5)
@@ -38,7 +40,7 @@ scene.add(monitorLight)
 const floorGeo = new THREE.PlaneGeometry(1, 1)
 const wallMat: Record<string, THREE.Material> = {}
 const geo: Record<string, THREE.BoxGeometry> = {}
-const ceilMat = pbr('beige_wall_001', 0xf2efe6, 1, THREE.DoubleSide)
+const ceilMat = Object.assign(pbr('beige_wall_001', 0xf2efe6), { polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 }) // empurrado pra trás: a laje da garagem (props.ts) tem a base na mesma altura e brigava no z-buffer
 const glassMat = new THREE.MeshLambertMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false })
 const frameMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 })
 const wm = (c: string) => (wallMat[c] ??= c === 'T' ? pbr('castle_wall_slates') : c === 'M' ? pbr('beige_wall_001', 0xd8cdb8) : pbr('beige_wall_001'))
@@ -61,6 +63,9 @@ function windowCell(x: number, z: number) {
   scene.add(pane)
 }
 
+// chão, parede e teto do mapa são centenas de caixas iguais: em vez de um objeto por metro, juntamos tudo por material (poucas chamadas de desenho)
+const batch = new Map<THREE.Material, { ms: THREE.Mesh[]; cast: boolean }>()
+const queue = (m: THREE.Mesh, cast: boolean) => { m.updateMatrix(); const k = m.material as THREE.Material; if (!batch.has(k)) batch.set(k, { ms: [], cast }); batch.get(k)!.ms.push(m) }
 // caixa de parede com UV em metros: a textura não estica na altura
 const wallGeo = (h: number) => { const g = new THREE.BoxGeometry(1, h, 1), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) if (i < 8 || i >= 16) uv.setY(i, uv.getY(i) * h); return g }
 
@@ -71,8 +76,7 @@ MAP.forEach((row, z) => [...row].forEach((c, x) => {
     const h = WALL_H[c]
     const m = new THREE.Mesh(geo[c] ??= wallGeo(h), wm(c))
     m.position.set(x + 0.5, h / 2, z + 0.5)
-    scene.add(m)
-    if (c === 'P') gateWalls.push(m)
+    if (c === 'P') { scene.add(m); gateWalls.push(m) } else queue(m, true) // o portão fica solto: ele se move
     return
   }
   const out = OUTDOOR.includes(c)
@@ -82,18 +86,23 @@ MAP.forEach((row, z) => [...row].forEach((c, x) => {
   const f = new THREE.Mesh(floorGeo, mat)
   f.rotation.x = -Math.PI / 2
   f.position.set(x + 0.5, 0, z + 0.5)
-  scene.add(f)
+  queue(f, false)
   if (c === 'F') { // verga sobre a porta da frente
-    const l = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 1), wm('#')); l.position.set(x + 0.5, 2.35, z + 0.5); scene.add(l)
+    const l = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 1), wm('#')); l.position.set(x + 0.5, 2.35, z + 0.5); queue(l, true)
   }
   if (!out) {
     const t = new THREE.Mesh(floorGeo, ceilMat)
     t.rotation.x = Math.PI / 2
     t.position.set(x + 0.5, H, z + 0.5)
-    scene.add(t)
-    ceilings.push(t)
+    queue(t, true)
   }
 }))
+
+for (const [mat, { ms, cast }] of batch) {
+  const mesh = new THREE.Mesh(mergeGeometries(ms.map((m) => m.geometry.clone().applyMatrix4(m.matrix)))!, mat)
+  mesh.userData.sh = 1; mesh.receiveShadow = true; mesh.castShadow = cast; scene.add(mesh)
+  if (mat === ceilMat) ceilings.push(mesh) // somem na vista do mapa
+}
 
 // céu: esfera com gradiente + terra vermelha até o horizonte + sol
 const skyTex = (() => {
@@ -128,14 +137,25 @@ const fx = new URLSearchParams(location.search).get('fx') === '0' ? null : initF
 const shade = () => scene.traverse((o) => {
   const m = o as THREE.Mesh; if (!m.isMesh || m.userData.sh) return; m.userData.sh = 1
   const mat = m.material as THREE.Material; if (Array.isArray(mat) || mat.transparent || !((mat as any).isMeshLambertMaterial || (mat as any).isMeshStandardMaterial)) return
-  m.receiveShadow = true; m.castShadow = !(m.geometry.type === 'PlaneGeometry' && m.rotation.x < 0)
+  const g = m.geometry; if (!g.boundingSphere) g.computeBoundingSphere()
+  m.receiveShadow = true; m.castShadow = g.boundingSphere!.radius * Math.max(...m.getWorldScale(cv).toArray()) > 0.7 && !(g.type === 'PlaneGeometry' && m.rotation.x < 0) // objeto pequeno não projeta sombra: cada projetor custa um desenho a mais
 })
-let shadeT = 0
+// longe demais (além da neblina) não desenha: esconde o que está a mais de 115 m; volta quando o jogador chega perto
+const cs = new THREE.Sphere()
+const cull = (px: number, pz: number, map: boolean) => scene.traverse((o) => {
+  const m = o as THREE.Mesh; if (!m.isMesh || (m as THREE.SkinnedMesh).isSkinnedMesh) return
+  const g = m.geometry; if (!g.boundingSphere) g.computeBoundingSphere()
+  cs.copy(g.boundingSphere!).applyMatrix4(m.matrixWorld); if (cs.radius > 25) return // céu, chão infinito e o mapa mesclado ficam sempre
+  if (!map && Math.hypot(cs.center.x - px, cs.center.z - pz) - cs.radius > 115) { if (m.visible) { m.visible = false; m.userData.far = 1 } } else if (m.userData.far) { m.visible = true; m.userData.far = 0 }
+})
+let shadeT = 0, cullT = 0, frame = 0
+const cv = new THREE.Vector3()
+renderer.shadowMap.autoUpdate = false // a sombra é redesenhada a cada 2 quadros (ver o loop)
 // FPS no canto (F2 liga/desliga os efeitos pra comparar o custo)
 const fpsEl = document.createElement('div'); fpsEl.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:50;font:12px monospace;color:#9f9;background:#000a;padding:3px 6px;border-radius:4px;pointer-events:none'
 document.body.append(fpsEl)
 let fpsN = 0, fpsT = 0, fpsLast = performance.now()
-addEventListener('keydown', (e) => { if (e.code === 'F2' && fx) { e.preventDefault(); fx.toggle() } })
+addEventListener('keydown', (e) => { if (e.code === 'F2' && fx) { e.preventDefault(); fx.toggle() } if (e.code === 'F3' && fx) { e.preventDefault(); fx.toggleAo() } })
 
 // lua e estrelas (aparecem de noite)
 const moon = new THREE.Mesh(new THREE.SphereGeometry(2.2), new THREE.MeshBasicMaterial({ color: 0xdfe8ff, fog: false })); scene.add(moon)
@@ -353,7 +373,9 @@ renderer.setAnimationLoop((now) => {
     ambient.intensity += 0.55 * inK; ambient.color.lerp(warm, 0.65 * inK); fx?.grade(0.62 + 0.28 * inK)
     if ((clockT += dt) > 0.5) { clockT = 0; clockEl.textContent = `🕒 ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}` } }
   if ((shadeT -= dt) < 0) { shadeT = 2; shade() }
-  if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2)`; fpsN = fpsT = 0 }
+  if ((cullT -= dt) < 0) { cullT = 0.5; cull(p.x, p.z, mapMode) }
+  if ((frame++ & 1) === 0) renderer.shadowMap.needsUpdate = true
+  if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2) · ao ${fx?.ao ? 'on' : 'off'} (F3)`; fpsN = fpsT = 0 }
   if (fx?.on && !mapMode) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera)
   if (state.photoReq) { const f = state.photoReq; state.photoReq = null; f(renderer.domElement.toDataURL('image/jpeg', 0.75)) } // foto do celular
   if (!mapMode) tv.render(camera)

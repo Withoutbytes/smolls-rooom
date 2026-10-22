@@ -7,8 +7,8 @@ import { ITEMS, give } from './inventory'
 import { state, toast, world, deskMissing } from './state'
 import { strum } from './sfx'
 import { tv } from './tv'
-import { buildRig } from './rig'
-import { createAnim, type Clip } from './smollAnim'
+import { RED_SKEL, buildRig, redPose } from './rig'
+import { createAnim, type Clip, type BedPose, BED_POSES } from './smollAnim'
 
 // Smoll 3D de primitivas: cadeira gamer + ele sentado + mesa com 2 monitores. Frente do grupo = +x (virado pra parede leste).
 const CX = 17.9, CZ = 13
@@ -77,6 +77,7 @@ export function buildSmoll(scene: THREE.Scene) {
   const M = new THREE.Group(); M.position.set(MX, 0, CZ); M.visible = false; scene.add(M)
   const hitM = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.0, 1.0), new THREE.MeshBasicMaterial({ visible: false })); hitM.position.y = 1; M.add(hitM)
   const holder = new THREE.Group(); holder.rotation.y = Math.PI / 2; M.add(holder) // o modelo olha pra +z; a frente do grupo é +x
+;(window as any).__smoll = M // debug: posição do Smoll
   let anim: ReturnType<typeof createAnim> | null = null
   let yawM = 0, chairYaw = 0, sitAmt = 0
   let routeOut: ((to: string) => [number, number][]) | null = null // caminho do Smoll (definido quando o modelo carrega, usado no update)
@@ -113,23 +114,30 @@ export function buildSmoll(scene: THREE.Scene) {
     const mug = new THREE.Group()
     const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 12), lm(0xffffff)); const coffee = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.005, 12), lm(0x3a1f10))
     coffee.position.y = -0.05; mug.add(cup, coffee); mug.position.set(0, -0.1, 0.04); rig.bones[10].add(mug)
-    // segunda roupa: modelo 3D de bermuda e chinelo (Hunyuan3D). A pose vai pros dois esqueletos; só um aparece. Se o arquivo faltar, vale o efeito de tinta no jeans.
-    let rigB: ReturnType<typeof buildRig> | null = null, mwB: THREE.Group | null = null
-    new GLTFLoader().load('/models/smoll_bermuda_hq.glb', (g2) => {
+    // outras roupas: modelos 3D (Hunyuan3D) de bermuda+chinelo e de cueca vermelha. A pose vai pra todos os esqueletos; só um aparece. Sem o arquivo da bermuda, vale o efeito de tinta no jeans.
+    type Outfit = { rig: ReturnType<typeof buildRig>; grp: THREE.Group }
+    const outfits: Record<'shorts' | 'red', Outfit | null> = { shorts: null, red: null }
+    const cur = () => (state.smollRed ? 'red' : state.smollShorts ? 'shorts' : 'jeans')
+    const showOutfit = () => {
+      const c = cur(); mw.visible = c === 'jeans'
+      for (const k of ['shorts', 'red'] as const) { const o = outfits[k]; if (o) o.grp.visible = c === k }
+      const o = c === 'jeans' ? null : outfits[c]; ;(o ? o.rig : rig).bones[10].add(mug)
+      shorts.value = c === 'shorts' && !outfits.shorts ? 1 : 0
+    }
+    for (const [k, file] of [['shorts', 'smoll_bermuda_hq'], ['red', 'smoll_skin_red_hq']] as const) new GLTFLoader().load(`/models/${file}.glb`, (g2) => {
       let s2: THREE.Mesh | undefined
       g2.scene.traverse((o) => { if (!s2 && (o as THREE.Mesh).isMesh) s2 = o as THREE.Mesh })
       if (!s2) return
       s2.geometry.computeVertexNormals()
-      rigB = buildRig(s2.geometry, new THREE.MeshLambertMaterial({ map: (s2.material as THREE.MeshStandardMaterial).map }))
-      mwB = new THREE.Group(); mwB.scale.setScalar(S); mwB.position.y = 0.999 * S; mwB.add(rigB.mesh); holder.add(mwB)
-      mwB.visible = state.smollShorts; mw.visible = !state.smollShorts; shorts.value = 0
-      if (state.smollShorts) rigB.bones[10].add(mug)
+      const r2 = buildRig(s2.geometry, new THREE.MeshLambertMaterial({ map: (s2.material as THREE.MeshStandardMaterial).map }), k === 'red' ? RED_SKEL : undefined)
+      const grp = new THREE.Group(); grp.scale.setScalar(S); grp.position.y = 0.999 * S; grp.add(r2.mesh); holder.add(grp)
+      outfits[k] = { rig: r2, grp }; showOutfit()
     })
-    anim = createAnim({ apply: (pose) => { rig.apply(pose); rigB?.apply(pose) } }, mug)
+    anim = createAnim({ apply: (pose) => { rig.apply(pose); outfits.shorts?.rig.apply(pose); outfits.red?.rig.apply(redPose(pose)) } }, mug)
     M.visible = true; B.visible = false
     hitbox.visible = false; delete R.userData.act                            // o alvo agora é o modelo
     const gotoBed = () => { if (mode !== 'desk') return false; anim!.stand(true); mode = 'toBed'; wp = [[17.5, 12.2], [15.3, 12.2], [14.85, 13]]; return true }
-    const wake = () => { if (mode !== 'sleep') return false; mode = 'rise'; modeT = 0; return true }
+    const wake = () => { if (mode !== 'sleep') return false; mode = 'rise'; modeT = 0; anim!.loco.pose = 'normal'; return true }
     act(M, () => (mode === 'sleep' ? 'Acordar o Smoll' : 'Falar com o Smoll'), () => (mode === 'sleep' ? wake() : openTalk()), (id, kind) => { // dar um item pro Smoll
       const n = ITEMS[id].name
       if (mode === 'sleep') { toast('Ele tá dormindo. Zzz.'); return true }
@@ -138,11 +146,15 @@ export function buildSmoll(scene: THREE.Scene) {
       if (kind === 'wear') { anim!.play('facepalm'); toast(`Smoll: ISSO NÃO É MEU! Nunca vi ${n} na vida!`); return 'consume' }
       anim!.play('shrug'); toast(`Smoll: Pra que eu quero ${n}? Mas obrigado.`); return 'consume'
     })
-    // troca de roupa: escurece a tela, troca a calça por bermuda (ou volta) e clareia
-    const changeClothes = () => {
-      const f = document.getElementById('fade')!, now = !state.smollShorts
+    // troca de roupa: escurece a tela, troca (calça ↔ bermuda ↔ cueca vermelha) e clareia
+    const changeClothes = (kind: 'shorts' | 'red') => {
+      const f = document.getElementById('fade')!, now = kind === 'red' ? !state.smollRed : !(state.smollShorts && !state.smollRed)
       f.style.opacity = '1'
-      setTimeout(() => { state.smollShorts = now; shorts.value = now && !rigB ? 1 : 0; if (rigB && mwB) { mw.visible = !now; mwB.visible = now; (now ? rigB : rig).bones[10].add(mug) } f.style.opacity = '0'; toast(now ? 'Smoll voltou de bermuda. As pernas nunca viram o sol. 🩳' : 'Smoll voltou de calça jeans. Calor? Ele nem liga.') }, 1300)
+      setTimeout(() => {
+        if (kind === 'red') state.smollRed = now; else { state.smollShorts = now; state.smollRed = false }
+        showOutfit(); f.style.opacity = '0'
+        toast(kind === 'red' ? (now ? 'Smoll voltou de calcinha vermelha. Ninguém pediu. 🩲' : 'Smoll se vestiu de novo. Graças a Deus.') : now ? 'Smoll voltou de bermuda. As pernas nunca viram o sol. 🩳' : 'Smoll voltou de calça jeans. Calor? Ele nem liga.')
+      }, 1300)
       return now
     }
     // ---- tarefas: o Smoll anda por um grafo de pontos (portas e cômodos), faz a ação e volta pro PC pelo mesmo caminho ----
@@ -188,6 +200,8 @@ export function buildSmoll(scene: THREE.Scene) {
       churrasco: { to: 'churras', face: -Math.PI / 2, clip: 'point', secs: 14, open: true, run: () => world.acao.churrasco?.(), done: () => world.acao.churrascoFim?.() },
       violaovaranda: { to: 'vsit', face: Math.PI, clip: 'dance', secs: 7, run: () => { toast('Smoll pegou o violão e sentou na varanda. 🎸'); for (let i = 0; i < 5; i++) setTimeout(() => strum(0.1), i * 1300) } },
     }
+    // abre a geladeira / os armários da cozinha enquanto ele mexe neles (props.ts liga world.acao.geladeira e .armario)
+    const openFor = (t: Task) => { const ms = t.secs * 1000 + 1500; if (t.to === 'fridge') (world.acao.geladeira as any)?.(ms); else if (['pia', 'mesa'].includes(t.to)) (world.acao.armario as any)?.(...N[t.to], ms) }
     const startTask = (name: string) => {
       const t = TASKS[name]; if (!t || mode !== 'desk') return false
       if (t.open) { state.doorOpen = true; setTimeout(() => (state.doorOpen = false), (t.secs + 35) * 1000) }
@@ -207,8 +221,15 @@ export function buildSmoll(scene: THREE.Scene) {
     }
     trips = { restock, start: startTask }
     state.cmd = (c) => {
+      if (c.startsWith('pose:')) { // poses na cama: deitado, pernas abertas, pernas pra cima, tesoura, ponte, fetal
+        const p = c.slice(5) as BedPose
+        if (!BED_POSES.includes(p)) return false
+        if (mode === 'desk') { if (!gotoBed()) return false; anim!.loco.pose = p; return true } // ele vai até a cama e faz
+        if (mode === 'toBed' || mode === 'falling' || mode === 'sleep') { anim!.loco.pose = p; return true }
+        return false // ocupado: no meio de uma tarefa
+      }
       if (c.startsWith('task:')) return startTask(c.slice(5))
-      if (c === 'shorts') return changeClothes()
+      if (c === 'shorts' || c === 'red') return changeClothes(c)
       if (c === 'sleep') return mode === 'sleep' ? wake() : gotoBed()
       if (c === 'wake') return wake()
       if (mode !== 'desk') return false // ocupado (andando ou dormindo)
@@ -248,7 +269,7 @@ export function buildSmoll(scene: THREE.Scene) {
           if (mode === 'goTask' || mode === 'doTask') {
             if (mode === 'goTask') {
               if (wp.length && goTo(wp[0])) wp.shift()
-              if (!wp.length) { mode = 'doTask'; modeT = 0; task!.run(); anim.play(task!.clip) }
+              if (!wp.length) { mode = 'doTask'; modeT = 0; openFor(task!); task!.run(); anim.play(task!.clip) }
             } else {
               yawM += wrap(task!.face - yawM) * Math.min(1, dt * 6)
               if (task!.sit !== undefined) { M.position.y = task!.sit; if ((task!.tick = (task!.tick ?? 5) + dt) > 5) { task!.tick = 0; anim.play((['laugh', 'thumbs', 'think'] as Clip[])[Math.floor(Math.random() * 3)]) } } // sentado no sofá: reage à TV de tempos em tempos
