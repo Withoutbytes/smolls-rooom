@@ -27,7 +27,7 @@ scene.background = new THREE.Color(0x8cc4f2)
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200)
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }) // alpha: o "buraco" da TV deixa ver o iframe do YouTube por trás
 renderer.setSize(innerWidth, innerHeight)
-renderer.xr.enabled = true; renderer.xr.setFoveation(1)
+renderer.xr.enabled = true; renderer.xr.setFoveation(1); renderer.xr.setFramebufferScaleFactor(0.8) // Quest: menos pixels = mais fps
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.domElement.style.cssText = 'position:fixed;inset:0;z-index:1'
 document.body.append(cssR.domElement, renderer.domElement)
@@ -177,7 +177,7 @@ const applyTime = (h: number, px: number, pz: number) => {
   ambient.intensity = 0.35 + 1.0 * day; ambient.color.setRGB(0.55 + 0.3 * day, 0.62 + 0.28 * day, 1)
   sunLight.intensity = 1.7 * day; sunLight.color.setRGB(0.85, 0.9 - 0.3 * dusk, 0.95 - 0.5 * dusk) // céu encoberto: sol frio e mais fraco
   const ox = Math.cos(a) * 100, oy = s * 90 + 4, oz = 25                 // nasce no leste (+x) e se põe no oeste
-  sunLight.position.set(px + ox, Math.max(oy, 5), pz + oz); sunLight.target.position.set(px, 0, pz); sunLight.castShadow = day > 0.03 // a sombra segue o jogador
+  sunLight.position.set(px + ox, Math.max(oy, 5), pz + oz); sunLight.target.position.set(px, 0, pz); sunLight.castShadow = day > 0.03 && !renderer.xr.isPresenting // a sombra segue o jogador
   sun.position.set(px + ox, oy, pz + oz); sun.visible = s > -0.15
   ;(sun.material as THREE.MeshBasicMaterial).color.setRGB(1, 0.95 - 0.25 * dusk, 0.77 - 0.45 * dusk)
   moon.position.set(px - ox, -oy, pz - oz); moon.visible = s < 0.1
@@ -404,9 +404,9 @@ renderer.setAnimationLoop((now) => {
     if ((clockT += dt) > 0.5) { clockT = 0; clockEl.textContent = `🕒 ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}` } }
   if ((shadeT -= dt) < 0) { shadeT = 2; shade() }
   if ((cullT -= dt) < 0) { cullT = 0.5; cull(p.x, p.z, mapMode) }
-  if ((frame++ & 1) === 0) renderer.shadowMap.needsUpdate = true
+  if ((frame++ & 1) === 0 && !xr) renderer.shadowMap.needsUpdate = true // em VR sem sombra: é o que mais pesa
   if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2) · ao ${fx?.ao ? 'on' : 'off'} (F3)`; fpsN = fpsT = 0 }
   try { if (fx?.on && !mapMode && !xr) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera) } catch (e) { vrLog('FALHA render', e) }
   if (state.photoReq) { const f = state.photoReq; state.photoReq = null; f(renderer.domElement.toDataURL('image/jpeg', 0.75)) } // foto do celular
-  if (!mapMode) tv.render(camera)
+  if (!mapMode && !xr) tv.render(camera) // a TV em HTML não aparece no headset
 })

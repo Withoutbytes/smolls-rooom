@@ -3,7 +3,7 @@ import { dialog, dialogView, pickOpt, closeDialog } from './interact'
 import { makeArm, curlArm, attachHeld, useHeld, cycleSlot } from './inventory'
 
 // VR: cada controle vira um braço com mão (e o item da mão do jogador), com laser pra apontar.
-// Gatilho = E (falar/agir) ou escolher opção no painel · grip = usar o item · A/X e B/Y = próximo/anterior da hotbar · analógico esq. anda, dir. gira 30°
+// Analógico dir.: cima pula, baixo agacha · clicar o esq. corre · Gatilho = E (falar/agir) ou escolher opção no painel · grip = usar o item · A/X e B/Y = próximo/anterior da hotbar · analógico esq. anda, dir. gira 30°
 // O HTML (dica, aviso, diálogo) não aparece dentro do headset: desenhamos num canvas e colamos em planos 3D.
 const noRay = (o: THREE.Object3D) => { o.raycast = () => {}; return o }
 
@@ -24,10 +24,12 @@ const fit = (g: CanvasRenderingContext2D, t: string, maxW: number) => { while (t
 
 // log visível dentro do headset (o console não aparece lá): erros e eventos de VR, últimas 6 linhas
 const lines: string[] = []
-let logDirty = false
+let logDirty = false, shownAt = 0
 export function vrLog(...a: unknown[]) {
   const m = a.map((x) => (x instanceof Error ? `${x.message} @ ${(x.stack ?? '').split('\n')[1]?.trim() ?? ''}` : String(x))).join(' ')
-  console.log('[vr]', m); lines.push(m.slice(0, 110)); if (lines.length > 6) lines.shift(); logDirty = true
+  console.log('[vr]', m)
+  if (!/ERRO|PROMESSA|FALHA/.test(m)) return // só erro vai pro painel: o resto fica no console
+  lines.push(m.slice(0, 110)); if (lines.length > 4) lines.shift(); logDirty = true; shownAt = performance.now()
 }
 addEventListener('error', (e) => vrLog('ERRO', e.message, `${e.filename?.split('/').pop()}:${e.lineno}`))
 addEventListener('unhandledrejection', (e) => vrLog('PROMESSA', (e.reason as Error)?.message ?? e.reason))
@@ -38,10 +40,14 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
     const arm = makeArm(); c.add(arm)
     const laser = noRay(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -3)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })))
     c.add(laser)
-    const s = { c, arm, laser, hand: '', cur: [0, 0, 0], down: false, grip: false, a: false, b: false }
+    const s = { c, arm, laser, hand: '', keys: new Set<string>(), cur: [0, 0, 0], down: false, grip: false, a: false, b: false }
     c.addEventListener('connected', (e: any) => { s.hand = e.data.handedness; if (s.hand === 'left') { c.remove(arm); s.arm = makeArm(true); c.add(s.arm) } })
     return s
   })
+  const key = (s: { keys: Set<string> }, code: string, on: boolean) => { // tecla virtual: só dispara na mudança
+    if (on === s.keys.has(code)) return; on ? s.keys.add(code) : s.keys.delete(code)
+    dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code }))
+  }
   const right = () => ctl.find((s) => s.hand === 'right') ?? ctl[1]
   const gp = (i: number) => Array.from(renderer.xr.getSession()?.inputSources ?? []).find((x) => x.handedness === ctl[i].hand && x.gamepad)?.gamepad
   let pointer = right()
@@ -50,6 +56,7 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
   const hud = canvasPlane(512, 96, 0.64, 0.12); hud.mesh.position.set(0, -0.27, -0.8); noRay(hud.mesh); camera.add(hud.mesh)
   const logP = canvasPlane(1024, 200, 1.2, 0.234); logP.mesh.position.set(0, 0.22, -1); noRay(logP.mesh); camera.add(logP.mesh); logP.mesh.visible = false
   const drawLog = () => {
+    if (logP.mesh.visible && performance.now() - shownAt > 8000) { logP.mesh.visible = false; lines.length = 0 } // some sozinho
     if (!logDirty) return; logDirty = false
     const g = logP.g; g.clearRect(0, 0, 1024, 200); g.fillStyle = '#000c'; g.fillRect(0, 0, 1024, 200)
     g.font = '24px monospace'; g.textBaseline = 'top'; g.fillStyle = '#7f7'
@@ -125,7 +132,8 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
         const b = (k: number) => !!pad.buttons[k]?.pressed
         s.laser.visible = s === pointer || dialog.open
         if (s.hand === 'left') { fwd = Math.abs(pad.axes[3]) > 0.15 ? -pad.axes[3] : 0; side = Math.abs(pad.axes[2]) > 0.15 ? pad.axes[2] : 0 }
-        else { const rx = pad.axes[2] ?? 0; if (Math.abs(rx) < 0.6) snap = true; else if (snap) { snap = false; turn = -Math.sign(rx) * Math.PI / 6 } }
+        else { const rx = pad.axes[2] ?? 0, ry = pad.axes[3] ?? 0; key(s, 'Space', ry < -0.7); key(s, 'ShiftLeft', ry > 0.7); if (Math.abs(rx) < 0.6) snap = true; else if (snap) { snap = false; turn = -Math.sign(rx) * Math.PI / 6 } }
+        if (s.hand === 'left') key(s, 'KeyR', b(3)) // clicar o analógico esquerdo = correr
         const trig = b(0), grip = b(1), a = b(4), bb = b(5)
         if (trig !== s.down) {
           s.down = trig; pointer = s
