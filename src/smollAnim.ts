@@ -61,6 +61,14 @@ export function mirrorX(p: Pose): Pose {
   return q
 }
 const MIR = (v: V3): V3 => [-v[0], v[1], v[2]]
+// Q é W para poses em que o CORPO INTEIRO rola 180° em torno do próprio eixo (de bruços). A rolagem é
+// aplicada no grupo M (rígida). Como ela vem DEPOIS, a direção que você escreve é a de antes do giro:
+// por isso o y e o z vão invertidos e a leitura continua sendo "pra cima / pro lado" na cena final.
+const Q = (x: number, y: number, z: number): V3 => W(x, -y, -z)
+// rolagem do corpo por pose (aplicada no grupo, ver smoll.ts). Girar o OSSO da bacia em π move as juntas
+// de ombro e quadril pro outro lado enquanto os vértices, presos por peso, ficam onde estavam: o membro
+// sai esticado e a textura escorre. No grupo, o corpo gira inteiro e nada deforma.
+export const BED_ROLL: Partial<Record<BedPose, number>> = { quatro: Math.PI }
 // braço (o direito recebe o espelho) e as duas pernas de uma vez
 const armLR = (u: V3, f: V3, h: V3 = f) => ({ L: limb(u, f, h), R: limb(MIR(u), MIR(f), MIR(h)) })
 const legsLR = (tl: V3, sl: V3, fl: V3) => ({ TL: tl, SL: sl, FL: fl, TR: MIR(tl), SR: MIR(sl), FR: MIR(fl) })
@@ -107,11 +115,13 @@ const BED: Record<BedPose, Pose> = {
   // O roll π gira o TRONCO (barriga pra baixo), mas a direção dos membros é absoluta: mão e joelho
   // continuam apontando pra BAIXO (W com y negativo).
   quatro: bedOf({
-    roll: Math.PI, rz: 0.28, ptilt: 0.22, lean: -0.10, arch: 0.10, hp: -0.42,
-    TL: W(0.12, -0.97, -0.08), SL: W(0.94, -0.06, -0.04), FL: W(0.80, 0.55, 0.0),
-    TR: W(0.12, -0.97, 0.08), SR: W(0.94, -0.06, 0.04), FR: W(0.80, 0.55, 0.0),
-    L: limb(W(-0.90, -0.40, -0.05), W(-0.75, -0.65, -0.04), W(-0.73, -0.67, -0.04)),
-    R: limb(W(-0.90, -0.40, 0.05), W(-0.75, -0.65, 0.04), W(-0.73, -0.67, 0.04)),
+    rz: -0.36, ptilt: 0.30, lean: -0.10, arch: 0.10, hp: -0.42,
+    // coxa a 45° (a 0,28 m de altura o joelho cai EXATO no colchão; a 97% ele afundava 11 cm)
+    TL: Q(0.42, -0.90, -0.07), SL: Q(0.97, 0.02, -0.04), FL: Q(0.88, 0.06, 0.0),
+    TR: Q(0.42, -0.90, 0.07), SR: Q(0.97, 0.02, 0.04), FR: Q(0.88, 0.06, 0.0),
+    // braços abertos na altura do travesseiro, cotovelo cedendo: as mãos encostam no colchão
+    L: limb(Q(-0.90, 0.18, -0.26), Q(-0.74, -0.30, -0.30), Q(-0.76, -0.28, -0.28)),
+    R: limb(Q(-0.90, 0.18, 0.26), Q(-0.74, -0.30, 0.30), Q(-0.76, -0.28, 0.28)),
   }),
   // fetal de verdade: corpo DE LADO (roll π/2 = lado esquerdo pra baixo), joelhos na direção do peito,
   // braço de baixo esticado sob a cabeça e o de cima abraçando a perna

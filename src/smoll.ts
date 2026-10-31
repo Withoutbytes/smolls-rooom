@@ -8,7 +8,7 @@ import { state, toast, world, deskMissing, gameHour, pick, type Mood } from './s
 import { strum, breath, sheet } from './sfx'
 import { tv } from './tv'
 import { RED_SKEL, SHORTS_SKEL, buildRig, redPose } from './rig'
-import { createAnim, type Clip, type BedPose, BED_POSES, CLIP_DUR, bedHeat } from './smollAnim'
+import { createAnim, type Clip, type BedPose, BED_POSES, CLIP_DUR, bedHeat , BED_ROLL } from './smollAnim'
 
 // Smoll 3D de primitivas: cadeira gamer + ele sentado + mesa com 2 monitores. Frente do grupo = +x (virado pra parede leste).
 const CX = 17.9, CZ = 13
@@ -17,6 +17,10 @@ const CX = 17.9, CZ = 13
 const LY_Y = 0.78
 // Fase 4: som de cama (respiração de 3 em 3 s) e a coberta subindo/descendo suave
 let bedSfxT = 2.5, cobertaK = 0, lastBedPose = ''
+// rolagem do corpo em torno do próprio eixo (pose "de bruços"): vai no GRUPO pra ser rígida.
+// Girar a bacia em π esticava braços e pernas (a junta muda de lado, o vértice não).
+let bedRollK = 0
+const ROLL_AX = new THREE.Vector3(1, 0, 0), ROLL_Q = new THREE.Quaternion()
 const lm = (c: number) => new THREE.MeshLambertMaterial({ color: c })
 
 export function buildSmoll(scene: THREE.Scene) {
@@ -311,6 +315,8 @@ export function buildSmoll(scene: THREE.Scene) {
           if (!wasPuppet) { wasPuppet = true; anim.puppet = true; M.position.set(r.x, r.y, r.z); yawM = r.ry; appliedN = r.cn }
           M.position.x += (r.x - M.position.x) * k; M.position.y += (r.y - M.position.y) * k; M.position.z += (r.z - M.position.z) * k
           yawM += wrap(r.ry - yawM) * k; M.rotation.set(0, yawM, r.rz)
+          const rrg = BED_ROLL[r.bp] ?? 0
+          if (rrg && r.ly) M.quaternion.premultiply(ROLL_Q.setFromAxisAngle(ROLL_AX, rrg))
           mode = r.mode; walk = r.w; lying = !!r.ly; anim.loco.bed = r.bd; anim.loco.pose = r.bp
           if (r.bn !== undefined) state.smollBond += (r.bn - state.smollBond) * k // o humor viaja junto com o corpo
           if (!!r.st !== anim.standing) anim.stand(!!r.st)
