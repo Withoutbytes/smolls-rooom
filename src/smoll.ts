@@ -402,7 +402,7 @@ export function buildSmoll(scene: THREE.Scene) {
         anim.loco.aside = state.seat?.lie ? Math.sign(state.seat.z - 13) : 0
         state.smollMode = mode; state.smollPose = anim.loco.pose
         // a cena "fecha" quando ele está na cama e você chega perto (FOV aplicado em main.ts)
-        state.bedFocus += ((bd && dist < 2.8 ? 1 : 0) - state.bedFocus) * Math.min(1, dt * 2.2)
+        state.bedFocus += (((bd || mode === 'sleep' || mode === 'falling') && dist < 2.8 ? 1 : 0) - state.bedFocus) * Math.min(1, dt * 2.2)
         // ---- encenação (Fase 4) ----
         // coberta até a cintura só nas poses com as pernas esticadas: levantada, ela atravessaria o joelho
         const straight = anim.loco.pose === 'normal' || anim.loco.pose === 'edge'

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { state, setGate, toast, pick } from './state'
+import { state, setGate, toast, pick, world } from './state'
 
 // objeto interagível = qualquer Object3D com userData.act; a mira (centro da tela) escolhe
 // use: o que acontece ao clicar com um item na mão olhando pra isto (true = tratou, 'consume' = tratou e gastou 1 do item)
@@ -151,7 +151,10 @@ export function bedTalk(): Node {
         entregue: ['Que eu queria que essa noite durasse mais.', 'Em você ficar.'],
         irritado: ['Em levantar.'],
       }), opts: [back] }) } },
-      { t: '🖐️ "Vem pra cama comigo…"', fn: () => { bond(3); show({ say: 'Deita. O lado esquerdo é seu. Só não mexe no meu travesseiro.', opts: [back] }) } },
+      { t: '🛏️ Deitar do lado dele', fn: () => {
+        bond(3); const ok = world.deitarNaCama(); closeDialog()
+        toast(ok === false ? 'Smoll: Aqui não cabe mais ninguém, olha o tamanho da cama.' : 'Deitou do lado dele. WASD ou espaço levanta · segure E pra tocar nele.')
+      } },
       { t: 'Levanta da cama', i: 'stand', fn: () => { const up = cmd('wake'); closeDialog(); toast(up !== false ? 'Smoll: Levantando. A cama é boa demais, isso é um problema.' : 'Smoll: Agora não.') } },
       { t: 'Tchau', i: 'gest-wave', fn: () => { cmd('wave'); closeDialog(); toast('Smoll: Vai lá. Eu fico.') } },
     ],

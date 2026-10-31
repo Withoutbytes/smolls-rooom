@@ -379,7 +379,8 @@ renderer.setAnimationLoop((now) => {
   } else if (!xr) camera.position.set(p.x, p.y + state.eye * (1 - 0.42 * p.crouch), p.z) // agachado: olhos 42% mais baixos
   if (xr) { rig.position.set(p.x, p.y, p.z); rig.rotation.y = xrTurn } else { rig.position.set(0, 0, 0); rig.rotation.y = 0; camera.rotation.set(p.pitch, p.yaw, state.seat?.roll ?? 0, 'YXZ') } // roll = cabeça deitada
   if (!xr) { // a cena "fecha" quando você chega perto dele na cama (state.bedFocus vem do smoll.ts)
-    const fovWant = 70 - 7 * state.bedFocus
+    // deitado na cama o olho fica a 13 cm do colchão: abre o campo pra cena não virar um close do rosto dele
+    const fovWant = 70 - 7 * state.bedFocus + (state.seat?.lie ? 12 : 0)
     if (Math.abs(camera.fov - fovWant) > 0.01) { camera.fov = fovWant; camera.updateProjectionMatrix() }
   }
   sky.position.set(p.x, 0, p.z); dirt.position.set(p.x, -0.02, p.z) // céu e chão acompanham o jogador: o mundo agora tem mais de 300 m

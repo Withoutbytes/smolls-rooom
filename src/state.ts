@@ -60,7 +60,7 @@ export const DAY_MS = 20 * 60 * 1000
 export const clock = { h: 8, at: performance.now() }
 export const gameHour = () => (clock.h + ((performance.now() - clock.at) / DAY_MS) * 24) % 24
 // ações do mundo que o Smoll pode executar sozinho (props.ts liga cada uma): luz/ventilador por cômodo, TV, chuveiro
-export const world = { luz: {} as Record<string, () => void>, ventilador: {} as Record<string, () => void>, tv: () => {}, chuveiro: (_on: boolean) => {}, coberta: (_k: number) => {}, camaLuz: (_k: number) => {}, cozinha: { cafe: () => {}, louca: () => {}, cozinhar: () => {}, almocar: () => {}, guardar: () => {} }, acao: {} as Record<string, () => void> } // acao: tarefas novas do Smoll (oficina, horta, churrasco, sala, varanda)
+export const world = { luz: {} as Record<string, () => void>, ventilador: {} as Record<string, () => void>, tv: () => {}, chuveiro: (_on: boolean) => {}, coberta: (_k: number) => {}, camaLuz: (_k: number) => {}, deitarNaCama: (() => false) as () => boolean | void, cozinha: { cafe: () => {}, louca: () => {}, cozinhar: () => {}, almocar: () => {}, guardar: () => {} }, acao: {} as Record<string, () => void> } // acao: tarefas novas do Smoll (oficina, horta, churrasco, sala, varanda)
 // itens da mesa do Smoll que sumiram (alguém pegou): o Smoll repõe bebidas indo à geladeira/cafeteira; o resto volta sozinho depois de um tempo
 export const deskMissing: { name: string; kind: 'drink' | 'cafe' | 'other'; at: number; restore: () => void }[] = []
 export const gateWalls: { visible: boolean }[] = []  // paredes 'P' do portão, escondidas quando abre

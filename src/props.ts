@@ -139,16 +139,18 @@ export function buildProps(scene: THREE.Scene) {
   type Spot = { x: number; y: number; z: number; yaw: number }
   const spotKey = (sp: Spot) => `${sp.x.toFixed(1)}_${sp.z.toFixed(1)}`
   // lie = deitar de lado (a câmera desce pro colchão e gira a cabeça: ver main.ts). msg = aviso ao sentar
-  const sitAct = (o: THREE.Object3D, spots: Spot[], label: string | (() => string), opt?: { lie?: boolean; msg?: string }) => act(o, () => (spots.every((sp) => state.takenSeats.has(spotKey(sp))) ? 'Lugar ocupado' : (typeof label === 'function' ? label() : label)), () => {
+  // ocupa um lugar (usado pelo E do móvel E pelo menu do Smoll: "deitar do lado dele")
+  const occupy = (spots: Spot[], lie: boolean, msg?: string) => {
     const free = spots.filter((sp) => !state.takenSeats.has(spotKey(sp))).sort((a, b) => Math.hypot(a.x - playerPos.x, a.z - playerPos.z) - Math.hypot(b.x - playerPos.x, b.z - playerPos.z))[0]
-    if (!free) { toast('Tá lotado! Espera alguém levantar.'); return }
-    const lie = !!opt?.lie
+    if (!free) { toast('Tá lotado! Espera alguém levantar.'); return false }
     // deitado: de que lado você fica define o roll da cabeça (a cama é x 12,1–14,2 / z 12,1–13,9)
     state.seat = { ...free, key: spotKey(free), ex: free.x - Math.sin(free.yaw) * 0.8, ez: free.z - Math.cos(free.yaw) * 0.8,
       lie: lie ? 1 : undefined, roll: lie ? (free.z < 13 ? -Math.PI / 2 : Math.PI / 2) : undefined }
     if (lie) { state.seat.ex = 14.62; state.seat.ez = free.z } // levanta AO LADO da cama, não em cima do outro lugar
-    toast(opt?.msg ?? 'Sentou. WASD ou espaço levanta · B abre os gestos (aparecem no espelho e pros outros).')
-  })
+    toast(msg ?? 'Sentou. WASD ou espaço levanta · B abre os gestos (aparecem no espelho e pros outros).')
+    return true
+  }
+  const sitAct = (o: THREE.Object3D, spots: Spot[], label: string | (() => string), opt?: { lie?: boolean; msg?: string }) => act(o, () => (spots.every((sp) => state.takenSeats.has(spotKey(sp))) ? 'Lugar ocupado' : (typeof label === 'function' ? label() : label)), () => { occupy(spots, !!opt?.lie, opt?.msg) })
   // item que dá pra pegar (some e volta em 20 s): build monta as peças dentro do grupo, em coordenadas locais com y = 0 na base
   const thing = (x: number, y: number, z: number, label: string, msgs: string[], build: (g: THREE.Group) => void, hold = true) => {
     const g = new THREE.Group(); g.position.set(x, y, z); scene.add(g); build(g); shareVis(g)
@@ -464,10 +466,13 @@ export function buildProps(scene: THREE.Scene) {
   box(0.1, 1.1, 1.9, 0x5a3a22, 12.08, 0, 13)
   box(2.15, 0.35, 1.8, 0x5a3a22, 13.15, 0.05, 13)
   // colchão: E deita. Dois lugares (um de cada lado dele). Se o Smoll estiver na cama, é "deitar ao lado dele".
-  sitAct(box(2.05, 0.25, 1.7, 0xf3efe6, 13.15, 0.4, 13),
-    [{ x: 13.40, y: 0.66, z: 12.55, yaw: Math.PI }, { x: 13.40, y: 0.66, z: 13.45, yaw: 0 }],
+  // cabeça na linha do travesseiro e o rosto voltado pro dele: deitado ao lado, não de costas pro ombro dele
+  const CAMA: Spot[] = [{ x: 12.92, y: 0.66, z: 12.30, yaw: 2.88 }, { x: 12.92, y: 0.66, z: 13.70, yaw: 0.26 }]
+  sitAct(box(2.05, 0.25, 1.7, 0xf3efe6, 13.15, 0.4, 13), CAMA,
     () => (state.smollMode === 'sleep' || state.smollMode === 'falling' ? 'Deitar ao lado dele' : 'Deitar na cama'),
     { lie: true, msg: 'Deitou. WASD ou espaço levanta · segure E pra tocar nele · B abre os gestos.' })
+  // deitar do lado dele SEM precisar mirar o colchão (a caixa do Smoll tapa a cama quando ele está deitado)
+  world.deitarNaCama = () => occupy(CAMA, true, 'Deitou do lado dele. WASD ou espaço levanta · segure E pra tocar.')
   act(box(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 12.35), 'Tirar uma soneca no travesseiro', sleep)
   const manta = tex(256, 256, (g, w, h) => {
     g.fillStyle = '#3d5a80'; g.fillRect(0, 0, w, h)
