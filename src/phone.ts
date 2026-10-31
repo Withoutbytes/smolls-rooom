@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { state, toast, gameHour, pick } from './state'
+import { state, toast, gameHour, pick, HTTP_BASE } from './state'
 import { ITEMS, defineItem, give, count } from './inventory'
 import { STREET_RECTS } from './bairro'
 import { PLACE } from './place'
@@ -162,7 +162,7 @@ export function initPhone(camera: THREE.Camera, p: { x: number; z: number; yaw: 
       if (e.key === 'Enter') { // internet
         let u = (e.target as HTMLInputElement).value.trim(); if (!u) return
         if (!/^https?:\/\//.test(u)) u = /\.\w{2,}/.test(u) && !u.includes(' ') ? 'https://' + u : 'https://pt.wikipedia.org/w/index.php?search=' + encodeURIComponent(u)
-        const f = screen.querySelector('iframe')!; f.src = `http://${location.hostname}:8080/proxy?url=${encodeURIComponent(u)}`
+        const f = screen.querySelector('iframe')!; f.src = `${HTTP_BASE}/proxy?url=${encodeURIComponent(u)}`
       }
       if (e.code === 'Escape') closePhone(false)
       return

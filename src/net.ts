@@ -1,9 +1,8 @@
 import * as THREE from 'three'
-import { clock, state } from './state'
+import { clock, state, WS_URL } from './state'
 import { loadVisitorModel, createVisitor, visitorReady, HEIGHT } from './visitor'
 
 // Multiplayer: manda a posição ~15x/s e desenha os outros jogadores (corpo simples + nome). Sem servidor, segue single player.
-const PORT = 8080
 const SCALE = 0.6 // tamanho do boneco simples (1 = 1,7 m); o visitante rigado usa HEIGHT de visitor.ts
 const color = (id: string) => new THREE.Color().setHSL(((+id * 0.37) % 1 + 1) % 1, 0.6, 0.5)
 
@@ -22,7 +21,7 @@ export function connectNet(scene: THREE.Scene) {
   loadVisitorModel() // modelo realista dos visitantes; até carregar (ou se faltar o arquivo) usa o boneco simples
   let ws: WebSocket | null = null, self = '', sendT = 0
   const open = () => {
-    try { ws = new WebSocket(`ws://${location.hostname}:${PORT}`) } catch { return }
+    try { ws = new WebSocket(WS_URL) } catch { return }
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data)
       if (m.h !== undefined) { clock.h = m.h; clock.at = performance.now() } // hora do servidor

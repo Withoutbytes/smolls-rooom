@@ -30,6 +30,10 @@ export const state = {
   enter: (_v: Vehicle) => {},  // main.ts liga isto: entra no veículo  // main.ts liga isto ao jogador
 }
 // relógio do jogo: um dia = 20 min reais. O servidor manda a hora (h) e cada cliente segue contando; sem servidor começa às 8h
+// onde está o servidor: no site publicado (HTTPS) é a própria origem (Worker da Cloudflare: /ws e /proxy); no desenvolvimento é o node server/ na porta 8080
+const prod = location.protocol === 'https:'
+export const HTTP_BASE = prod ? location.origin : `http://${location.hostname}:8080`
+export const WS_URL = prod ? `wss://${location.host}/ws` : `ws://${location.hostname}:8080`
 export const DAY_MS = 20 * 60 * 1000
 export const clock = { h: 8, at: performance.now() }
 export const gameHour = () => (clock.h + ((performance.now() - clock.at) / DAY_MS) * 24) % 24

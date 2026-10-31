@@ -1,4 +1,4 @@
-import { state, toast } from './state'
+import { state, toast, HTTP_BASE } from './state'
 import { codeState, runCode, DEFAULT_CODE, desk, pcState } from './code'
 import { drawPage } from './screens'
 
@@ -112,7 +112,7 @@ const go = (u: string, push = true) => {
   url.value = u; desk.url = u
   if (!state.internet) { frame.removeAttribute('src'); frame.srcdoc = '<body style="font:18px sans-serif;padding:40px;background:#fff"><h2>Sem conexão</h2>O roteador está reiniciando. Aguarde alguns segundos.'; return }
   // sites que deixam ser embutidos abrem direto; o resto passa pelo proxy do servidor (que tira o bloqueio de iframe)
-  frame.src = /youtube\.com\/embed|openstreetmap\.org\/export\/embed|wikipedia\.org/.test(u) ? u : `http://${location.hostname}:8080/proxy?url=${encodeURIComponent(u)}`
+  frame.src = /youtube\.com\/embed|openstreetmap\.org\/export\/embed|wikipedia\.org/.test(u) ? u : `${HTTP_BASE}/proxy?url=${encodeURIComponent(u)}`
 }
 wWeb.querySelector('.go')!.addEventListener('click', () => go(url.value))
 wWeb.querySelector('.go-back')!.addEventListener('click', () => { hist.pop(); const u = hist.pop(); if (u) go(u) })
