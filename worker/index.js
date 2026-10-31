@@ -74,10 +74,11 @@ async function proxy(req) {
   } catch { return page(502, 'Não consegui abrir essa página.') }
 }
 
+// uma sala por versão do deploy: o Durable Object antigo (que fica vivo enquanto tiver gente) não mistura formatos de mensagem com o código novo
 export default {
   fetch(req, env) {
     const { pathname } = new URL(req.url)
-    if (pathname === '/ws') return env.ROOM.get(env.ROOM.idFromName('main')).fetch(req)
+    if (pathname === '/ws') return env.ROOM.get(env.ROOM.idFromName(env.VERSION?.id ?? 'main')).fetch(req)
     if (pathname === '/proxy') return proxy(req)
     return env.ASSETS.fetch(req)
   },
