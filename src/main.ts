@@ -315,7 +315,11 @@ const driveStep = (dt: number) => {
 initHeld(camera, scene, { ground: groundAt, free })
 // VR: o headset sobrescreve a pose da câmera, então ela vira filha de um "rig" que fica nos pés do jogador. Analógico esq. anda, dir. gira (estalos de 30°), gatilho = E
 const rig = new THREE.Group(); scene.add(rig); rig.add(camera)
-document.body.append(VRButton.createButton(renderer))
+navigator.xr?.isSessionSupported('immersive-vr').then((ok) => { // só mostra o botão se houver VR; canto inferior direito, discreto
+  if (!ok) return
+  const b = VRButton.createButton(renderer); b.style.cssText += ';left:auto;right:14px;bottom:14px;transform:none;width:auto;padding:6px 12px;opacity:.7;z-index:10'
+  document.body.append(b)
+}).catch(() => {})
 let xrTurn = 0, snapReady = true, trigPrev = false
 const xrInput = () => {
   let lx = 0, ly = 0, rx = 0, trig = false
