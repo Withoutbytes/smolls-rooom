@@ -16,12 +16,13 @@ const $ = (id: string) => document.getElementById(id)!
 const ray = new THREE.Raycaster(); ray.far = 2.0
 let target: Act | null = null, tick = 0
 
-export function updateInteract(scene: THREE.Scene, camera: THREE.Camera) {
+export function updateInteract(scene: THREE.Scene, camera: THREE.Camera, from?: THREE.Object3D) { // from: controle de VR (aponta pelo -Z dele); sem isso, a mira é o centro da tela
   const tip = $('tip')
   if (dialog.open) { tip.style.display = 'none'; return }
   if (++tick % 3 === 0) {
-    ray.setFromCamera(new THREE.Vector2(0, 0), camera)
-    const hit = ray.intersectObjects(scene.children, true).find((h) => { let v: THREE.Object3D | null = h.object; while (v && v.visible) v = v.parent; return !v })
+    if (from) { from.updateWorldMatrix(true, false); ray.ray.origin.setFromMatrixPosition(from.matrixWorld); ray.ray.direction.set(0, 0, -1).transformDirection(from.matrixWorld); ray.far = 3 }
+    else { ray.setFromCamera(new THREE.Vector2(0, 0), camera); ray.far = 2 }
+    const hit = ray.intersectObjects(scene.children, true).find((h) => { let v: THREE.Object3D | null = h.object; while (v && v.visible && v !== from) v = v.parent; return !v }) // ignora o que está no próprio controle (mão, item, laser)
     let o: THREE.Object3D | null = hit?.object ?? null
     target = null
     for (; o; o = o.parent) if (o.userData.act) { target = o.userData.act; break }
@@ -197,11 +198,15 @@ export function closeDialog() {
   dialog.open = false; $('dialog').style.display = 'none'
   document.querySelector('canvas')?.requestPointerLock?.() // volta pro jogo (funciona quando veio de um clique)
 }
-$('dialog').addEventListener('click', (e) => {
-  const b = (e.target as HTMLElement).closest('button'); if (!b) return
-  const o = cur.opts[+b.dataset.i!]
+/** escolhe a opção i do diálogo aberto (clique no HTML ou gatilho do VR) */
+export function pickOpt(i: number) {
+  const o = cur.opts[i]; if (!o) return
   if (o.fn) o.fn()
   if (o.go) show(o.go())
+}
+export const dialogView = () => ({ say: cur.say, code: cur.code, opts: cur.opts.map((o) => o.t) }) // o painel do VR desenha isto
+$('dialog').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('button'); if (b) pickOpt(+b.dataset.i!)
 })
 
 // E curto = falar/agir; E SEGURADO (0,45 s) = tocar. Só existe "tocar" onde o alvo registrou touch().

@@ -15,6 +15,7 @@ import { tv, cssR } from './tv'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { initFx } from './fx'
 import { pbr, FLOOR_TEX } from './tex'
+import { initVR } from './vr'
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js'
 
 const H = 2.6
@@ -313,25 +314,16 @@ const driveStep = (dt: number) => {
 }
 
 initHeld(camera, scene, { ground: groundAt, free })
-// VR: o headset sobrescreve a pose da câmera, então ela vira filha de um "rig" que fica nos pés do jogador. Analógico esq. anda, dir. gira (estalos de 30°), gatilho = E
+// VR: o headset sobrescreve a pose da câmera, então ela vira filha de um "rig" que fica nos pés do jogador. Controles, braços e painéis: ver vr.ts
 const rig = new THREE.Group(); scene.add(rig); rig.add(camera)
 navigator.xr?.isSessionSupported('immersive-vr').then((ok) => { // só mostra o botão se houver VR; canto inferior direito, discreto
   if (!ok) return
   const b = VRButton.createButton(renderer); b.style.cssText += ';left:auto;right:14px;bottom:14px;transform:none;width:auto;padding:6px 12px;opacity:.7;z-index:10'
   document.body.append(b)
 }).catch(() => {})
-let xrTurn = 0, snapReady = true, trigPrev = false
-const xrInput = () => {
-  let lx = 0, ly = 0, rx = 0, trig = false
-  for (const src of renderer.xr.getSession()?.inputSources ?? []) {
-    const a = src.gamepad?.axes; if (!a) continue
-    if (src.handedness === 'left') { lx = a[2] ?? 0; ly = a[3] ?? 0 } else { rx = a[2] ?? 0; trig ||= !!src.gamepad!.buttons[0]?.pressed }
-  }
-  if (Math.abs(rx) < 0.6) snapReady = true; else if (snapReady) { snapReady = false; xrTurn -= Math.sign(rx) * Math.PI / 6 }
-  if (trig && !trigPrev) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); setTimeout(() => dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })), 90) } // gatilho = E (curto: fala)
-  trigPrev = trig
-  return [Math.abs(ly) > 0.15 ? -ly : 0, Math.abs(lx) > 0.15 ? lx : 0] // [frente, lado]
-}
+let xrTurn = 0
+const vr = initVR(renderer, scene, camera, rig)
+renderer.xr.addEventListener('sessionend', () => vr.end())
 initPhone(camera, p)
 addEventListener('contextmenu', (e) => e.preventDefault())
 let last = performance.now(), inK = 0 // inK: 0 fora, 1 dentro de casa (suavizado)
@@ -341,7 +333,8 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.05) * ((window as any).__fast ?? 1); last = now
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
   const xr = renderer.xr.isPresenting
-  const [xf, xs] = xr ? xrInput() : [0, 0]
+  const [xf, xs, xt] = xr ? vr.update() : [0, 0, 0]
+  xrTurn += xt
   if (xr) { p.yaw = xrTurn + camera.rotation.y; p.pitch = 0 } // anda na direção em que a cabeça olha
   const f = lock * (+keys.has('KeyW') - +keys.has('KeyS') + xf), s = lock * (+keys.has('KeyD') - +keys.has('KeyA') + xs)
   const wantCrouch = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !drv && !state.seat && !!lock
@@ -387,7 +380,7 @@ renderer.setAnimationLoop((now) => {
   props.update(dt, p.x, p.z, mapMode)
   net.update(dt, p)
   tickHold() // VR não manda keyup: resolve o "segurar E" pelo tempo
-  if (!mapMode) updateInteract(scene, camera)
+  if (!mapMode) updateInteract(scene, camera, xr ? vr.pointer() : undefined)
   smoll.update(dt, now / 1000, p.x, p.z)
   if (mapMode) {
     marker.position.x = p.x; marker.position.z = p.z; marker.rotation.y = p.yaw; marker.scale.setScalar(Math.max(1, mapZoom))

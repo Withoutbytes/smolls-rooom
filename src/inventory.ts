@@ -206,19 +206,23 @@ function updateDrops(dt: number) {
   }
 }
 // ---- braço e mão em 1ª pessoa: é o que permite "tocar" nele e ver acontecer ----
-const armG = new THREE.Group()
-{
+export function makeArm(left = false) {
+  const g = new THREE.Group(), sx = left ? -1 : 1
   const skin = new THREE.MeshLambertMaterial({ color: 0xc68e65 }), sleeve = new THREE.MeshLambertMaterial({ color: 0x3b3b44 })
-  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.040, 0.052, 0.30, 10), skin); fore.rotation.x = Math.PI / 2; fore.position.z = 0.19; armG.add(fore)
-  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.060, 0.09, 10), sleeve); cuff.rotation.x = Math.PI / 2; cuff.position.z = 0.38; armG.add(cuff)
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.032, 0.10), skin); palm.position.set(0, 0, 0.02); armG.add(palm)
+  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.040, 0.052, 0.30, 10), skin); fore.rotation.x = Math.PI / 2; fore.position.z = 0.19; g.add(fore)
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.060, 0.09, 10), sleeve); cuff.rotation.x = Math.PI / 2; cuff.position.z = 0.38; g.add(cuff)
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.032, 0.10), skin); palm.position.set(0, 0, 0.02); g.add(palm)
   for (let i = 0; i < 4; i++) {
     const fg = new THREE.Mesh(new THREE.BoxGeometry(0.017, 0.022, 0.055), skin)
-    fg.position.set(-0.030 + i * 0.020, 0, -0.062); fg.rotation.x = -0.25; armG.add(fg)
+    fg.position.set(sx * (-0.030 + i * 0.020), 0, -0.062); fg.rotation.x = -0.25; g.add(fg)
   }
-  const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.05), skin); thumb.position.set(0.052, -0.006, -0.02); thumb.rotation.set(-0.2, -0.5, 0); armG.add(thumb)
-  armG.visible = false
+  const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.05), skin); thumb.position.set(sx * 0.052, -0.006, -0.02); thumb.rotation.set(-0.2, -0.5 * sx, 0); g.add(thumb)
+  return g
 }
+const armG = makeArm(); armG.visible = false
+/** VR: o item da mão passa a morar no controle (null = volta pra câmera) */
+export const vrHand = { on: false }
+export function attachHeld(parent: THREE.Object3D | null) { vrHand.on = !!parent; if (parent) parent.add(handG); else world?.camera.add(handG) }
 export function initHeld(camera: THREE.Camera, scene: THREE.Scene, phys: Phys) {
   world = { camera, scene, phys }; scene.add(camera); camera.add(handG); handG.position.set(0.24, -0.2, -0.5)
   camera.add(armG)
@@ -239,6 +243,7 @@ export function updateHeld(dt: number, moving: boolean) {
   if (world) updateDrops(dt)
   bob += dt * (moving ? 9 : 2); swing = Math.max(0, swing - dt * 3)
   const k = Math.sin(swing * Math.PI)
+  if (vrHand.on) { handG.position.set(0, 0.03, -0.1 - k * 0.08); handG.visible = !state.driving; armG.visible = false; return } // VR: o controle é a mão
   handG.position.set(0.24 - k * 0.12, -0.2 + Math.sin(bob) * (moving ? 0.012 : 0.004) - k * 0.03, -0.5 - k * 0.15)
   // mão em 1ª pessoa: sobe na direção do que você está tocando (state.touchAnim vai a 1 no toque e decai)
   state.touchAnim = Math.max(0, state.touchAnim - dt * 1.15)
@@ -258,10 +263,8 @@ const SELF: Record<Kind, (name: string, id: string) => string | null> = {
   wear: (n) => { toast(`Você colocou ${n}. Se sentiu… diferente.`); return null },
   junk: (n) => { toast(`${n}: você não sabe o que fazer com isso. Ainda.`); return null },
 }
-addEventListener('mousedown', (e) => {
-  if (!document.pointerLockElement || state.editing || dialog.open) return
-  if (e.button === 2) { dropHeld(true); return } // botão direito arremessa
-  if (e.button !== 0) return
+/** usa o item da mão (clique esquerdo no desktop; grip no VR) */
+export function useHeld() {
   const s = slots[sel]; if (!s) return
   const d = ITEMS[s.id]; swing = 1
   if (d.use) { d.use(); return } // ferramenta: tem uso próprio (controle da TV, celular)
@@ -270,4 +273,11 @@ addEventListener('mousedown', (e) => {
   if (r) { if (r === 'consume') { takeOne(sel); if (lo) give(lo) } return }
   const msg = SELF[d.kind](d.name, s.id)
   if (msg) { toast(msg); if (d.kind === 'drink' || d.kind === 'food') { takeOne(sel); if (lo) give(lo) } }
+}
+export const cycleSlot = (d: number) => selectSlot(sel + d)
+export const throwHeld = () => dropHeld(true)
+addEventListener('mousedown', (e) => {
+  if (!document.pointerLockElement || state.editing || dialog.open) return
+  if (e.button === 2) { dropHeld(true); return } // botão direito arremessa
+  if (e.button === 0) useHeld()
 })

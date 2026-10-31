@@ -1,0 +1,122 @@
+import * as THREE from 'three'
+import { dialog, dialogView, pickOpt, closeDialog } from './interact'
+import { makeArm, attachHeld, useHeld, cycleSlot } from './inventory'
+
+// VR: cada controle vira um braço com mão (e o item da mão do jogador), com laser pra apontar.
+// Gatilho = E (falar/agir) ou escolher opção no painel · grip = usar o item · A/X e B/Y = próximo/anterior da hotbar · analógico esq. anda, dir. gira 30°
+// O HTML (dica, aviso, diálogo) não aparece dentro do headset: desenhamos num canvas e colamos em planos 3D.
+const noRay = (o: THREE.Object3D) => { o.raycast = () => {}; return o }
+
+function canvasPlane(w: number, h: number, mw: number, mh: number) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(mw, mh), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, fog: false }))
+  mesh.renderOrder = 1000
+  return { c, g: c.getContext('2d')!, tex, mesh }
+}
+const wrap = (g: CanvasRenderingContext2D, text: string, maxW: number) => {
+  const out: string[] = []; let line = ''
+  for (const w of text.split(/\s+/)) { const t = line ? `${line} ${w}` : w; if (g.measureText(t).width > maxW && line) { out.push(line); line = w } else line = t }
+  if (line) out.push(line)
+  return out
+}
+const fit = (g: CanvasRenderingContext2D, t: string, maxW: number) => { while (t.length > 1 && g.measureText(t).width > maxW) t = t.slice(0, -2) + '…'; return t }
+
+export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, rig: THREE.Object3D) {
+  const ctl = [0, 1].map((i) => {
+    const c = renderer.xr.getController(i); rig.add(c)
+    const arm = makeArm(); c.add(arm)
+    const laser = noRay(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -3)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })))
+    c.add(laser)
+    const s = { c, arm, laser, hand: '', down: false, grip: false, a: false, b: false }
+    c.addEventListener('connected', (e: any) => { s.hand = e.data.handedness; if (s.hand === 'left') { c.remove(arm); s.arm = makeArm(true); c.add(s.arm) } })
+    return s
+  })
+  const right = () => ctl.find((s) => s.hand === 'right') ?? ctl[1]
+  const gp = (i: number) => renderer.xr.getSession()?.inputSources.find((x) => x.handedness === ctl[i].hand && x.gamepad)?.gamepad
+  let pointer = right()
+
+  // dica da mira + aviso: um plano preso na frente do olhar
+  const hud = canvasPlane(512, 96, 0.64, 0.12); hud.mesh.position.set(0, -0.27, -0.8); noRay(hud.mesh); camera.add(hud.mesh)
+  let hudTxt = ''
+  const drawHud = () => {
+    const tip = document.getElementById('tip')!, toast = document.getElementById('toast')!
+    const t = [tip.style.display !== 'none' ? tip.textContent : '', toast.style.opacity === '1' ? toast.textContent : ''].filter(Boolean).join('\n')
+    if (t === hudTxt) return; hudTxt = t
+    const g = hud.g; g.clearRect(0, 0, 512, 96)
+    if (!t) { hud.tex.needsUpdate = true; return }
+    g.fillStyle = '#000b'; g.beginPath(); g.roundRect(4, 4, 504, 88, 14); g.fill()
+    g.fillStyle = '#fff'; g.font = 'bold 26px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'
+    const lines = t.split('\n').flatMap((l) => wrap(g, l, 480)).slice(0, 2)
+    lines.forEach((l, i) => g.fillText(l, 256, 48 + (i - (lines.length - 1) / 2) * 32))
+    hud.tex.needsUpdate = true
+  }
+
+  // painel do diálogo: aparece na frente de você quando o menu do Smoll abre; aponte + gatilho
+  const W = 1024, H = 768, panel = canvasPlane(W, H, 1.6, 1.2); panel.mesh.visible = false; scene.add(panel.mesh)
+  const ROW = 46, TOP = 230, rc = new THREE.Raycaster()
+  let wasOpen = false, hover = -1, drawn = ''
+  const rowAt = (s: typeof ctl[0]) => {
+    s.c.updateWorldMatrix(true, false)
+    rc.ray.origin.setFromMatrixPosition(s.c.matrixWorld); rc.ray.direction.set(0, 0, -1).transformDirection(s.c.matrixWorld)
+    const h = rc.intersectObject(panel.mesh)[0]; if (!h?.uv) return -1
+    const x = h.uv.x * W, y = (1 - h.uv.y) * H, n = dialogView().opts.length, per = Math.ceil(n / 2)
+    if (y < TOP) return -1
+    const r = Math.floor((y - TOP) / ROW), col = x < W / 2 ? 0 : 1, i = col * per + r
+    return r < per && i < n ? i : -1
+  }
+  const drawPanel = () => {
+    const v = dialogView(), key = v.say + v.opts.join('|') + hover; if (key === drawn) return; drawn = key
+    const g = panel.g; g.clearRect(0, 0, W, H)
+    g.fillStyle = '#12141ae6'; g.beginPath(); g.roundRect(0, 0, W, H, 28); g.fill()
+    g.textAlign = 'left'; g.textBaseline = 'top'
+    g.fillStyle = '#ffd54a'; g.font = 'bold 34px sans-serif'; g.fillText('Smoll', 32, 22)
+    g.fillStyle = '#fff'; g.font = '30px sans-serif'
+    wrap(g, v.say, W - 64).slice(0, 4).forEach((l, i) => g.fillText(l, 32, 70 + i * 38))
+    g.font = '28px sans-serif'
+    const per = Math.ceil(v.opts.length / 2)
+    v.opts.forEach((t, i) => {
+      const col = Math.floor(i / per), r = i % per, x = 24 + col * (W / 2), y = TOP + r * ROW
+      g.fillStyle = i === hover ? '#3a6df0' : '#2d2d38'; g.beginPath(); g.roundRect(x, y, W / 2 - 40, ROW - 6, 10); g.fill()
+      g.fillStyle = '#fff'; g.fillText(fit(g, t, W / 2 - 70), x + 14, y + 6)
+    })
+    panel.tex.needsUpdate = true
+  }
+  const place = () => { // 1,3 m à frente (na direção do olhar, sem inclinar), na altura dos olhos
+    const p = new THREE.Vector3(), d = new THREE.Vector3(); camera.getWorldPosition(p); camera.getWorldDirection(d); d.y = 0; d.normalize()
+    panel.mesh.position.copy(p).addScaledVector(d, 1.3); panel.mesh.position.y = p.y - 0.05; panel.mesh.lookAt(p.x, panel.mesh.position.y, p.z)
+  }
+
+  let snap = true, held = -1
+  return {
+    /** controle apontando (o último que apertou o gatilho) — updateInteract mira por ele */
+    pointer: () => pointer.c as THREE.Object3D,
+    /** chamar a cada quadro em VR; devolve [frente, lado, giro em rad] */
+    update(): [number, number, number] {
+      let fwd = 0, side = 0, turn = 0
+      const r = right(); if (held !== ctl.indexOf(r)) { held = ctl.indexOf(r); attachHeld(r.c) }
+      if (dialog.open) { if (!wasOpen) { place(); drawn = '' } wasOpen = true; panel.mesh.visible = true; hover = rowAt(pointer); drawPanel() }
+      else { wasOpen = false; panel.mesh.visible = false; hover = -1 }
+      ctl.forEach((s, i) => {
+        const pad = gp(i); if (!pad) return
+        const b = (k: number) => !!pad.buttons[k]?.pressed
+        s.laser.visible = s === pointer || dialog.open
+        if (s.hand === 'left') { fwd = Math.abs(pad.axes[3]) > 0.15 ? -pad.axes[3] : 0; side = Math.abs(pad.axes[2]) > 0.15 ? pad.axes[2] : 0 }
+        else { const rx = pad.axes[2] ?? 0; if (Math.abs(rx) < 0.6) snap = true; else if (snap) { snap = false; turn = -Math.sign(rx) * Math.PI / 6 } }
+        const trig = b(0), grip = b(1), a = b(4), bb = b(5)
+        if (trig !== s.down) {
+          s.down = trig; pointer = s
+          if (dialog.open) { if (trig) { const k = rowAt(s); if (k >= 0) pickOpt(k) } }
+          else dispatchEvent(new KeyboardEvent(trig ? 'keydown' : 'keyup', { code: 'KeyE' })) // segurar = tocar (ver interact.ts)
+        }
+        if (grip && !s.grip) { if (dialog.open) closeDialog(); else useHeld() }
+        if (a && !s.a && !dialog.open) cycleSlot(1)
+        if (bb && !s.b && !dialog.open) cycleSlot(-1)
+        s.grip = grip; s.a = a; s.b = bb
+      })
+      drawHud()
+      return [fwd, side, turn]
+    },
+    end() { attachHeld(null); held = -1; panel.mesh.visible = false },
+  }
+}
