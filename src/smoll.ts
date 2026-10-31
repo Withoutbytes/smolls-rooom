@@ -14,7 +14,7 @@ import { createAnim, type Clip, type BedPose, BED_POSES, CLIP_DUR, bedHeat , BED
 const CX = 17.9, CZ = 13
 // altura do grupo do Smoll quando está DEITADO: o centro do corpo fica 12 cm acima do colchão (0,66),
 // que é a metade da espessura das costas — antes ficava 18 cm e ele flutuava na cama.
-const LY_Y = 0.78
+const LY_Y = 0.83
 // Fase 4: som de cama (respiração de 3 em 3 s) e a coberta subindo/descendo suave
 let bedSfxT = 2.5, cobertaK = 0, lastBedPose = ''
 // rolagem do corpo em torno do próprio eixo (pose "de bruços"): vai no GRUPO pra ser rígida.

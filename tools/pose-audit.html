@@ -56,7 +56,7 @@ bd(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 13.65)
 const groups = {}
 for (const pose of BED_POSES) {
   const rig = buildRig(src.geometry, new THREE.MeshLambertMaterial({ color: 0xb98a63 }))
-  const M = new THREE.Group(); M.position.set(14.15, 0.78, 13); M.rotation.set(0, 0, Math.PI / 2)
+  const M = new THREE.Group(); M.position.set(14.15, 0.83, 13); M.rotation.set(0, 0, Math.PI / 2)
   { const rg = BED_ROLL[pose] ?? 0; if (rg) M.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rg)) }
   const holder = new THREE.Group(); holder.rotation.y = Math.PI / 2; M.add(holder)
   const mw = new THREE.Group(); mw.scale.setScalar(S); mw.position.y = 0.999 * S; mw.add(rig.mesh); holder.add(mw)

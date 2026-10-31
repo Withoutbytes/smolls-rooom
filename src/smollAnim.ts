@@ -78,7 +78,8 @@ const legsLR = (tl: V3, sl: V3, fl: V3) => ({ TL: tl, SL: sl, FL: fl, TR: MIR(tl
 // O colchão está em 0,66 m: deitado o quadril fica a ~11 cm dele, o ombro a ~13 e a cabeça a ~14.
 const BED: Record<BedPose, Pose> = {
   normal: bedOf({
-    ...legsLR(W(1, -0.16, 0.10), W(1, -0.05, 0.02), W(1, -0.02, 0.34)),
+    // pé apoiado no calcanhar (dedos pra cima): o GLB tem 10 cm de pé abaixo do tornozelo e afundava 3 cm
+  ...legsLR(W(1, -0.13, 0.10), W(1, 0.0, 0.02), W(1, 0.14, 0.30)),
     ...armLR(W(0.96, -0.26, -0.10), W(-0.10, 0.55, 0.83)), hy: 0.30, hp: -0.06,
   }),
   // pernas abertas: joelhos dobrados pra CIMA e pros lados, pés apoiados, quadril empinado.
