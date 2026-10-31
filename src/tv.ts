@@ -22,7 +22,7 @@ export const tv = {
   place(x: number, y: number, z: number, rotY: number, w: number) { obj.position.set(x, y, z); obj.rotation.y = rotY; obj.scale.setScalar(w / W) },
   cmd(f: string, args: unknown[] = []) { frame.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: f, args }), '*') },
   load(id: string) {
-    this.id = id; this.loaded = true; this.paused = false; this.sent = -1
+    this.id = id; if (vrT) drawVr(id); this.loaded = true; this.paused = false; this.sent = -1
     frame.src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=1`
     this.muted = true
   },
@@ -41,7 +41,32 @@ export const tv = {
       if (v !== this.sent) { this.sent = v; this.cmd('setVolume', [v]) }
     }
   },
+  // VR: o iframe não aparece no headset (HTML). A tela vira uma textura com a miniatura do vídeo; o som do iframe continua tocando
+  vr(on: boolean) {
+    const h = this.hole
+    h.map = on ? vrTex() : null; h.color.set(on ? 0xffffff : 0x000000); h.opacity = on ? 1 : 0; h.blending = on ? THREE.NormalBlending : THREE.NoBlending; h.needsUpdate = true
+    if (on) drawVr(this.id)
+  },
   render(camera: THREE.Camera) { if (obj.visible) cssR.render(cssScene, camera) },
+}
+let vrCanvas: HTMLCanvasElement | null = null, vrT: THREE.CanvasTexture | null = null, vrId = ''
+const vrTex = () => {
+  if (!vrT) { vrCanvas = document.createElement('canvas'); vrCanvas.width = 640; vrCanvas.height = 360; vrT = new THREE.CanvasTexture(vrCanvas); vrT.colorSpace = THREE.SRGBColorSpace }
+  return vrT
+}
+function drawVr(id: string) {
+  vrTex(); const g = vrCanvas!.getContext('2d')!; vrId = id
+  const paint = (img?: HTMLImageElement) => {
+    if (vrId !== id) return
+    g.fillStyle = '#101018'; g.fillRect(0, 0, 640, 360)
+    if (img) g.drawImage(img, 0, 0, 640, 360)
+    g.fillStyle = '#000a'; g.fillRect(0, 300, 640, 60)
+    g.fillStyle = '#fff'; g.font = 'bold 26px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'
+    g.fillText('▶ YouTube — só o som toca no VR', 320, 330)
+    vrT!.needsUpdate = true
+  }
+  paint()
+  const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => paint(im); im.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
 }
 addEventListener('resize', () => cssR.setSize(innerWidth, innerHeight))
 cssR.setSize(innerWidth, innerHeight)

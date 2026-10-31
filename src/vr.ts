@@ -41,7 +41,7 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
     const laser = noRay(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -3)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })))
     c.add(laser)
     const s = { c, arm, laser, hand: '', keys: new Set<string>(), cur: [0, 0, 0], down: false, grip: false, a: false, b: false }
-    c.addEventListener('connected', (e: any) => { s.hand = e.data.handedness; if (s.hand === 'left') { c.remove(arm); s.arm = makeArm(true); c.add(s.arm) } })
+    c.addEventListener('connected', (e: any) => { s.hand = e.data.handedness; if (s.hand === 'left') { c.remove(arm); s.arm = makeArm(true); c.add(s.arm, wrist.mesh) } })
     return s
   })
   const key = (s: { keys: Set<string> }, code: string, on: boolean) => { // tecla virtual: só dispara na mudança
@@ -52,6 +52,20 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
   const gp = (i: number) => Array.from(renderer.xr.getSession()?.inputSources ?? []).find((x) => x.handedness === ctl[i].hand && x.gamepad)?.gamepad
   let pointer = right()
 
+  // cola dos controles no antebraço esquerdo: só aparece quando você vira o pulso pra olhar
+  const wrist = canvasPlane(320, 480, 0.15, 0.225); noRay(wrist.mesh); wrist.mesh.rotation.x = -Math.PI / 2; wrist.mesh.position.set(0, 0.075, 0.2); wrist.mesh.visible = false
+  {
+    const g = wrist.g, L: [string, string][] = [['Gatilho', 'interagir'], ['Grip', 'usar item'], ['A / B', 'trocar item'], ['Analóg. E', 'andar'], ['  clicar', 'correr'], ['Analóg. D', 'girar'], ['  cima', 'pular'], ['  baixo', 'agachar']]
+    g.fillStyle = '#12141af0'; g.beginPath(); g.roundRect(0, 0, 320, 480, 20); g.fill()
+    g.fillStyle = '#ffd54a'; g.font = 'bold 30px sans-serif'; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('Controles', 18, 14)
+    L.forEach(([k, v], i) => { g.fillStyle = '#9cf'; g.font = 'bold 26px sans-serif'; g.fillText(k, 18, 66 + i * 50); g.fillStyle = '#fff'; g.font = '26px sans-serif'; g.fillText(v, 170, 66 + i * 50) })
+    wrist.tex.needsUpdate = true
+  }
+  const wp = new THREE.Vector3(), wn = new THREE.Vector3(), hp = new THREE.Vector3()
+  const wristShow = (c: THREE.Object3D) => { // normal do painel (pra cima do controle) apontando pra cabeça
+    wrist.mesh.getWorldPosition(wp); wn.set(0, 1, 0).transformDirection(c.matrixWorld); camera.getWorldPosition(hp)
+    return wn.dot(hp.sub(wp).normalize()) > 0.6
+  }
   // dica da mira + aviso: um plano preso na frente do olhar
   const hud = canvasPlane(512, 96, 0.64, 0.12); hud.mesh.position.set(0, -0.27, -0.8); noRay(hud.mesh); camera.add(hud.mesh)
   const logP = canvasPlane(1024, 200, 1.2, 0.234); logP.mesh.position.set(0, 0.22, -1); noRay(logP.mesh); camera.add(logP.mesh); logP.mesh.visible = false
@@ -129,6 +143,7 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
       else { wasOpen = false; panel.mesh.visible = false; hover = -1 }
       ctl.forEach((s, i) => {
         const pad = gp(i); if (!pad) return
+        if (s.hand === 'left') wrist.mesh.visible = wristShow(s.c)
         const b = (k: number) => !!pad.buttons[k]?.pressed
         s.laser.visible = s === pointer || dialog.open
         if (s.hand === 'left') { fwd = Math.abs(pad.axes[3]) > 0.15 ? -pad.axes[3] : 0; side = Math.abs(pad.axes[2]) > 0.15 ? pad.axes[2] : 0 }

@@ -323,7 +323,8 @@ navigator.xr?.isSessionSupported('immersive-vr').then((ok) => { // só mostra o 
 }).catch(() => {})
 let xrTurn = 0
 const vr = initVR(renderer, scene, camera, rig)
-renderer.xr.addEventListener('sessionend', () => vr.end())
+renderer.xr.addEventListener('sessionstart', () => tv.vr(true))
+renderer.xr.addEventListener('sessionend', () => { vr.end(); tv.vr(false) })
 initPhone(camera, p)
 addEventListener('contextmenu', (e) => e.preventDefault())
 let last = performance.now(), inK = 0 // inK: 0 fora, 1 dentro de casa (suavizado)
@@ -408,5 +409,5 @@ renderer.setAnimationLoop((now) => {
   if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2) · ao ${fx?.ao ? 'on' : 'off'} (F3)`; fpsN = fpsT = 0 }
   try { if (fx?.on && !mapMode && !xr) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera) } catch (e) { vrLog('FALHA render', e) }
   if (state.photoReq) { const f = state.photoReq; state.photoReq = null; f(renderer.domElement.toDataURL('image/jpeg', 0.75)) } // foto do celular
-  if (!mapMode && !xr) tv.render(camera) // a TV em HTML não aparece no headset
+  if (!mapMode && !xr) tv.render(camera) // em VR a TV vira textura (tv.vr)
 })
