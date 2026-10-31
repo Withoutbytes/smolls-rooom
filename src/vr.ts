@@ -43,7 +43,7 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
     return s
   })
   const right = () => ctl.find((s) => s.hand === 'right') ?? ctl[1]
-  const gp = (i: number) => renderer.xr.getSession()?.inputSources.find((x) => x.handedness === ctl[i].hand && x.gamepad)?.gamepad
+  const gp = (i: number) => Array.from(renderer.xr.getSession()?.inputSources ?? []).find((x) => x.handedness === ctl[i].hand && x.gamepad)?.gamepad
   let pointer = right()
 
   // dica da mira + aviso: um plano preso na frente do olhar
