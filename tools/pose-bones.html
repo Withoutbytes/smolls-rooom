@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><title>bones</title>
+<style>body{font:12px/1.45 ui-monospace,monospace;background:#12141a;color:#dfe6f2;margin:0;padding:14px}table{border-collapse:collapse}td,th{padding:2px 8px;text-align:right}th{color:#8aa}td.p{text-align:left;color:#ffd28a}tr.bad td{color:#ff8080}</style>
+</head><body><div id="out">carregando…</div>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { buildRig } from '/src/rig.ts'
+import { bedPose, BED_POSES } from '/src/smollAnim.ts'
+// Mede o que importa: alturas ACIMA DO COLCHÃO (0,66) dos pontos de contato, em cm.
+// Regra: 2 contatos (um com peso) e nada flutuando mais de 8 cm sem apoio.
+const S = 1.75 / 1.99, MAT = 0.66
+const gltf = await new GLTFLoader().loadAsync('/models/smoll_real_hq.glb')
+let src; gltf.scene.traverse((o) => { if (!src && o.isMesh) src = o })
+src.geometry.computeVertexNormals()
+const NAMES = ['hips','spine','chest','neck','head','uL','fL','hL','uR','fR','hR','tL','sL','ftL','tR','sR','ftR']
+const rows = []
+for (const pose of BED_POSES) {
+  const rig = buildRig(src.geometry, new THREE.MeshLambertMaterial({ color: 0xb98a63 }))
+  const M = new THREE.Group(); M.position.set(14.15, 0.78, 13); M.rotation.set(0, 0, Math.PI / 2)
+  const holder = new THREE.Group(); holder.rotation.y = Math.PI / 2; M.add(holder)
+  const mw = new THREE.Group(); mw.scale.setScalar(S); mw.position.y = 0.999 * S; mw.add(rig.mesh); holder.add(mw)
+  rig.apply(bedPose(1, 1, pose))
+  M.updateMatrixWorld(true)
+  const v = new THREE.Vector3(), P = {}
+  rig.bones.forEach((b) => { b.getWorldPosition(v); P[b.name] = { x: v.x, y: +(v.y - MAT).toFixed(3), z: v.z } })
+  const cm = (n) => Math.round(P[n].y * 100)
+  const low = (n) => P[n].y < 0.13
+  // tL/tR = quadril, sL/sR = JOELHO, ftL/ftR = tornozelo
+  const handMin = Math.min(P.hL.y, P.hR.y), anMin = Math.min(P.ftL.y, P.ftR.y), knMin = Math.min(P.sL.y, P.sR.y)
+  const contacts = ['hips','chest','head','spine'].filter(low).length + (handMin < 0.06 ? 1 : 0) + (anMin < 0.06 ? 1 : 0) + (knMin < 0.06 ? 1 : 0)
+  const fly = [['cabeça',P.head.y],['mãos',handMin],['pés',anMin],['joelhos',knMin]].filter(([,y]) => y > 0.12 || y < -0.06).map(([k]) => k)
+  ;(window.__all ??= {})[pose] = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, [Math.round(v.y * 100), +v.x.toFixed(2), +v.z.toFixed(2)]]))
+  rows.push({ pose, cm: { cab: cm('head'), pei: cm('chest'), qua: cm('hips'), mae: Math.round(handMin*100), joe: Math.round(knMin*100), pe: Math.round(anMin*100) },
+    x: { cab: +P.head.x.toFixed(2), pe: +P.ftL.x.toFixed(2) }, contacts, fly })
+}
+const h = ['<table><tr><th>pose</th><th>cabeça</th><th>peito</th><th>quadril</th><th>mãos</th><th>joelhos</th><th>pés</th><th>contatos</th><th>flutuando</th><th>x cabeça/pé (m)</th></tr>']
+for (const r of rows) h.push(`<tr class="${r.contacts < 2 || r.fly.length ? 'bad' : ''}"><td class="p">${r.pose}</td><td>${r.cm.cab}</td><td>${r.cm.pei}</td><td>${r.cm.qua}</td><td>${r.cm.mae}</td><td>${r.cm.joe}</td><td>${r.cm.pe}</td><td>${r.contacts}</td><td>${r.fly.join(',') || '—'}</td><td>${r.x.cab} / ${r.x.pe}</td></tr>`)
+h.push('</table><p>tudo em cm ACIMA do colchão (0,66 m). x: 12,1 = cabeceira · 14,2 = pé da cama.</p>')
+document.getElementById('out').innerHTML = h.join('')
+window.__d = rows
+</script></body></html>

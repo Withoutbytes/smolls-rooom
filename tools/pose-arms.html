@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><title>abdução do braço (limite da malha)</title>
+<style>body{margin:0;background:#0b0d10;color:#dfe6ee;font:12px monospace}#wrap{position:relative}</style></head>
+<body><div id="wrap"></div>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { buildRig, clonePose } from '/src/rig.ts'
+import { bedPose } from '/src/smollAnim.ts'
+const S = 1.75 / 1.99, CW = 400, CH = 340, N = 4
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(CW * N, CH); renderer.setPixelRatio(1)
+document.getElementById('wrap').appendChild(renderer.domElement)
+const gltf = await new GLTFLoader().loadAsync('/models/smoll_real_hq.glb')
+let src; gltf.scene.traverse((o) => { if (!src && o.isMesh) src = o })
+src.geometry.computeVertexNormals()
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0e1014)
+scene.add(new THREE.HemisphereLight(0xffffff, 0x222222, 1.2))
+const key = new THREE.DirectionalLight(0xffffff, 1.3); key.position.set(9, 12, 16); scene.add(key)
+const lm = (c) => new THREE.MeshLambertMaterial({ color: c })
+const bd = (w,h,d,c,x,y,z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), lm(c)); m.position.set(x,y+h/2,z); scene.add(m) }
+bd(2.05,0.25,1.7,0xf3efe6,13.15,0.4,13); bd(1.2,0.12,1.74,0x3d5a80,13.7,0.54,13)
+const deg = (d) => d * Math.PI / 180
+const mkRig = (abductDeg) => {
+  const rig = buildRig(src.geometry, lm(0xb98a63))
+  const M = new THREE.Group(); M.position.set(14.15,0.84,13); M.rotation.set(0,0,Math.PI/2)
+  const holder = new THREE.Group(); holder.rotation.y = Math.PI/2; M.add(holder)
+  const mw = new THREE.Group(); mw.scale.setScalar(S); mw.position.y = 0.999*S; mw.add(rig.mesh); holder.add(mw)
+  const p = bedPose(1,1,'normal')
+  const a = deg(abductDeg), sy = Math.sin(a), cx = Math.cos(a)
+  // braço esquerdo (+x) abduzindo pra fora do corpo; o direito é espelho
+  p.L = { u: [sy*0.9, -cx*0.9, 0.05], f: [sy*0.9, -cx*0.9 + 0.15, 0.35], h: [sy*0.9, -cx*0.9 + 0.15, 0.35] }
+  p.R = { u: [-sy*0.9, -cx*0.9, 0.05], f: [-sy*0.9, -cx*0.9 + 0.15, 0.35], h: [-sy*0.9, -cx*0.9 + 0.15, 0.35] }
+  rig.apply(p); scene.add(M); M.visible = false
+  return M
+}
+const rigs = [0, 30, 60, 90].map(mkRig)
+const cam = new THREE.PerspectiveCamera(50, CW/CH, 0.05, 60)
+cam.position.set(14.6, 1.35, 14.9); cam.lookAt(13.4, 0.85, 13.0)
+renderer.setScissorTest(true)
+rigs.forEach((M, i) => {
+  rigs.forEach((g) => g.visible = false); M.visible = true
+  const x = i * CW
+  renderer.setViewport(x,0,CW,CH); renderer.setScissor(x,0,CW,CH); renderer.render(scene, cam)
+})
+window.__ready = true
+</script></body></html>

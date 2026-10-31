@@ -8,8 +8,9 @@ export type V3 = [number, number, number]
 export interface Limb { u: V3; f: V3; h: V3 }  // braço, antebraço, mão
 export interface Pose {
   rx: number; ry: number; rz: number            // deslocamento da bacia (unidades nativas)
-  roll: number                                  // giro do corpo em torno do próprio eixo (0 = de costas, π = de quatro/prona)
-  lean: number; twist: number; side: number     // inclinação do tronco: frente, giro, lado
+  roll: number                                  // giro do corpo em torno do próprio eixo (0 = de costas, π = prona, π/2 = de lado)
+  ptilt: number                                 // pitch da bacia: empina/derruba o quadril sem esticar a coluna
+  lean: number; arch: number; twist: number; side: number // tronco: inclinação, curvatura do tórax (a curva em S), giro, lado
   hy: number; hp: number; hr: number            // cabeça: giro, pitch (+ olha pra baixo), roll
   L: Limb; R: Limb
   TL: V3; SL: V3; FL: V3; TR: V3; SR: V3; FR: V3 // coxa, canela, pé
@@ -68,7 +69,7 @@ const ramp = (v: number, a: number, b: number) => { const t = Math.min(1, Math.m
 const dirOf = (a: string, b: string): V3 => { const d = new THREE.Vector3(...J[b]).sub(new THREE.Vector3(...J[a])).normalize(); return [d.x, d.y, d.z] }
 
 export const restPose = (sp?: SkelSpec): Pose => (sp ? withSkeleton(sp, () => restPose()) : {
-  rx: 0, ry: 0, rz: 0, roll: 0, lean: 0, twist: 0, side: 0, hy: 0, hp: 0, hr: 0,
+  rx: 0, ry: 0, rz: 0, roll: 0, ptilt: 0, lean: 0, arch: 0, twist: 0, side: 0, hy: 0, hp: 0, hr: 0,
   L: { u: dirOf('shL', 'elL'), f: dirOf('elL', 'wrL'), h: dirOf('wrL', 'haL') },
   R: { u: dirOf('shR', 'elR'), f: dirOf('elR', 'wrR'), h: dirOf('wrR', 'haR') },
   TL: dirOf('hpL', 'knL'), SL: dirOf('knL', 'anL'), FL: dirOf('anL', 'toL'),
@@ -184,10 +185,14 @@ function buildRigNow(src: THREE.BufferGeometry, material: THREE.Material, spec: 
     mesh, bones,
     apply(p: Pose) {
       bones[0].position.copy(hipsRest).add(new THREE.Vector3(p.rx, p.ry, p.rz))
-      // roll = virar o corpo inteiro em torno do eixo da espinha (pra ficar de quatro, π)
-      wq.hips = e(0, p.roll || 0, 0); bones[0].quaternion.copy(wq.hips)
-      place('spine', 'hips', e(p.lean * 0.5, p.twist * 0.5, p.side * 0.5))
-      place('chest', 'spine', e(p.lean * 0.5, p.twist * 0.5, p.side * 0.5))
+      // roll = virar o corpo inteiro em torno do eixo da espinha (pra ficar de quatro, π; de lado, π/2)
+      // ptilt = pitch da bacia: empina o quadril (anteversão) sem precisar inclinar a coluna inteira
+      wq.hips = e(p.ptilt || 0, p.roll || 0, 0); bones[0].quaternion.copy(wq.hips)
+      // arch = curvatura própria do tórax sobre a inclinação: é o que faz a coluna ter curva em S em vez de tábua
+      // o ptilt gira a Bacia e tudo que é filho dela (as pernas seguem, é o efeito desejado); a coluna
+      // recebe o contrário pra o TRONCO não subir junto — senão "empinar o quadril" virava "levantar o peito".
+      place('spine', 'hips', e(p.lean * 0.5 - (p.ptilt || 0), p.twist * 0.5, p.side * 0.5))
+      place('chest', 'spine', e(p.lean * 0.5 + (p.arch || 0), p.twist * 0.5, p.side * 0.5))
       place('neck', 'chest', e(p.hp * 0.3, p.hy * 0.3, p.hr * 0.3))
       place('head', 'neck', e(p.hp * 0.7, p.hy * 0.7, p.hr * 0.7))
       for (const S of ['L', 'R'] as const) {

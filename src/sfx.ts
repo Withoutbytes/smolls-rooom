@@ -28,6 +28,29 @@ export function tweet(vol = 0.06) { if (vol < 0.01) return; const a = ac(); for 
 /** galinha: có-có-có */
 export function cluck(vol = 0.08) { if (vol < 0.01) return; const a = ac(); for (let i = 0; i < 3; i++) { const o = a.createOscillator(), g = a.createGain(), t = a.currentTime + i * 0.13; o.type = 'square'; o.frequency.setValueAtTime(380 - i * 40, t); o.frequency.exponentialRampToValueAtTime(220, t + 0.08); g.gain.setValueAtTime(vol * 0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09); o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.1) } }
 
+/** respiração de quem dorme: ruído grave com envelope lento (in e out) */
+export function breath(vol = 0.05, dur = 2.2) {
+  if (vol < 0.006) return
+  const a = ac()
+  const buf = a.createBuffer(1, Math.floor(a.sampleRate * dur), a.sampleRate), d = buf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * (i / d.length)) ** 1.5
+  const src = a.createBufferSource(); src.buffer = buf
+  const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 560; f.Q.value = 0.7
+  const g = a.createGain(); g.gain.value = vol
+  src.connect(f).connect(g).connect(a.destination); src.start()
+}
+/** lençol: ruído curto e seco, como corpo se mexendo na cama */
+export function sheet(vol = 0.06) {
+  if (vol < 0.006) return
+  const a = ac(), dur = 0.42
+  const buf = a.createBuffer(1, Math.floor(a.sampleRate * dur), a.sampleRate), d = buf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2
+  const src = a.createBufferSource(); src.buffer = buf
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 1.4
+  const g = a.createGain(); g.gain.value = vol
+  src.connect(f).connect(g).connect(a.destination); src.start()
+}
+
 // ---------- vitrola / caixa de som: playlist gerada na hora (acordes + baixo + melodia aleatória na escala), volume ajustado de fora pela distância ----------
 export const TRACKS = [
   { name: 'Lo-fi do Smoll', bpm: 72, type: 'sine' as OscillatorType, chords: [[57, 60, 64], [53, 57, 60], [55, 59, 62], [52, 55, 59]], lead: [69, 72, 74, 76, 79] },

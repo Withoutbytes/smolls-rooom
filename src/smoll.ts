@@ -2,16 +2,21 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { blockers } from './props'
 import { buildPC } from './pc'
-import { act, openTalk, dialog } from './interact'
-import { ITEMS, give } from './inventory'
-import { state, toast, world, deskMissing } from './state'
-import { strum } from './sfx'
+import { act, openTalk, dialog, getTarget } from './interact'
+import { ITEMS, give, heldId } from './inventory'
+import { state, toast, world, deskMissing, gameHour, pick, type Mood } from './state'
+import { strum, breath, sheet } from './sfx'
 import { tv } from './tv'
 import { RED_SKEL, SHORTS_SKEL, buildRig, redPose } from './rig'
-import { createAnim, type Clip, type BedPose, BED_POSES, CLIP_DUR } from './smollAnim'
+import { createAnim, type Clip, type BedPose, BED_POSES, CLIP_DUR, bedHeat } from './smollAnim'
 
 // Smoll 3D de primitivas: cadeira gamer + ele sentado + mesa com 2 monitores. Frente do grupo = +x (virado pra parede leste).
 const CX = 17.9, CZ = 13
+// altura do grupo do Smoll quando está DEITADO: o centro do corpo fica 12 cm acima do colchão (0,66),
+// que é a metade da espessura das costas — antes ficava 18 cm e ele flutuava na cama.
+const LY_Y = 0.78
+// Fase 4: som de cama (respiração de 3 em 3 s) e a coberta subindo/descendo suave
+let bedSfxT = 2.5, cobertaK = 0, lastBedPose = ''
 const lm = (c: number) => new THREE.MeshLambertMaterial({ color: c })
 
 export function buildSmoll(scene: THREE.Scene) {
@@ -141,14 +146,34 @@ export function buildSmoll(scene: THREE.Scene) {
     hitbox.visible = false; delete R.userData.act                            // o alvo agora é o modelo
     const gotoBed = () => { if (mode !== 'desk') return false; anim!.stand(true); mode = 'toBed'; wp = [[17.5, 12.2], [15.3, 12.2], [14.85, 13]]; return true }
     const wake = () => { if (mode !== 'sleep') return false; mode = 'rise'; modeT = 0; anim!.loco.pose = 'normal'; return true }
-    act(M, () => (mode === 'sleep' ? 'Acordar o Smoll' : 'Falar com o Smoll'), () => (mode === 'sleep' ? wake() : openTalk()), (id, kind) => { // dar um item pro Smoll
-      const n = ITEMS[id].name
-      if (mode === 'sleep') { toast('Ele tá dormindo. Zzz.'); return true }
-      if (kind === 'drink') { anim!.play('sip'); toast(`Smoll: Valeu! Tava morrendo de sede. (${n})`); return 'consume' }
-      if (kind === 'food') { anim!.play('thumbs'); toast(`Smoll: Hmm, ${n}. Aceito, claro.`); return 'consume' }
-      if (kind === 'wear') { anim!.play('facepalm'); toast(`Smoll: ISSO NÃO É MEU! Nunca vi ${n} na vida!`); return 'consume' }
-      anim!.play('shrug'); toast(`Smoll: Pra que eu quero ${n}? Mas obrigado.`); return 'consume'
-    })
+    const inBed = () => mode === 'sleep' || mode === 'falling'
+    const bondBy = (d: number) => { state.smollBond = Math.max(0, Math.min(100, state.smollBond + d)) }
+    // TOQUE: E curto fala, E SEGURADO (0,45 s) toca. A mão em 1ª pessoa sobe (inventory.ts) e ele reage pelo humor.
+    const touchSmoll = () => {
+      if (!anim) return
+      state.touchAnim = 1
+      anim.touch(inBed() ? 1 : 0.55)
+      const m = state.smollMood
+      if (m === 'irritado') { bondBy(-3); state.smollPatience = Math.max(0, state.smollPatience - 0.25); toast('Smoll: Ei. Não.', 3000); return }
+      if (m === 'contido') { bondBy(-1); toast('Smoll: …devagar, tá?', 3000); return }
+      bondBy(4)
+      const lines = inBed()
+        ? (m === 'entregue' ? ['Não para.', 'Fica com a mão aí. Um pouco mais.'] : m === 'provocando' ? ['Assim você não me deixa descansar, sabia?', 'Só isso? Achei que você tinha coragem de mais.'] : ['Hum. Tudo bem, continua.', 'Tocou. Tá me testando ou tá com frio?'])
+        : (m === 'entregue' ? ['Pode encostar.', 'Eu não vou fugir.'] : ['Ei. Tá tudo bem?', 'Cuidado com o braço, ele trabalha muito.'])
+      toast('Smoll: ' + pick(lines), 3600)
+    }
+    act(M, () => (mode === 'sleep' ? 'Acordar o Smoll · segure E p/ tocar' : mode === 'falling' ? 'Tocar no Smoll · segure E' : 'Falar com o Smoll · segure E p/ tocar'),
+      () => (mode === 'sleep' ? wake() : openTalk()),
+      (id, kind) => { // dar um item pro Smoll: agora ele ACEITA ou RECUSA pelo humor
+        const n = ITEMS[id].name, m = state.smollMood
+        if (mode === 'sleep') { toast('Ele tá dormindo. Zzz.'); return true }
+        if (m === 'irritado') { toast(`Smoll: Agora não. Deixa aí. (${n})`); return true }
+        if (m === 'contido' && Math.random() < 0.5) { anim!.play('shrug'); bondBy(-1); toast(`Smoll: …valeu. (${n})`); return 'consume' }
+        if (kind === 'drink') { anim!.play('sip'); bondBy(2); toast(`Smoll: Valeu! Tava morrendo de sede. (${n})`); return 'consume' }
+        if (kind === 'food') { anim!.play('thumbs'); bondBy(2); toast(`Smoll: Hmm, ${n}. Aceito, claro.`); return 'consume' }
+        if (kind === 'wear') { anim!.play('facepalm'); bondBy(-2); toast(`Smoll: ISSO NÃO É MEU! Nunca vi ${n} na vida!`); return 'consume' }
+        anim!.play('shrug'); toast(`Smoll: Pra que eu quero ${n}? Mas obrigado.`); return 'consume'
+      }, { smoll: true, touch: touchSmoll })
     // troca de roupa: escurece a tela, troca (calça ↔ bermuda ↔ cueca vermelha) e clareia
     const changeClothes = (kind: 'shorts' | 'red') => {
       const f = document.getElementById('fade')!, now = kind === 'red' ? !state.smollRed : !(state.smollShorts && !state.smollRed)
@@ -244,6 +269,32 @@ export function buildSmoll(scene: THREE.Scene) {
     }
   }, undefined, () => console.warn('smoll_real_hq.glb não carregou, ficando com o Smoll de primitivas'))
 
+  // ---- ele TOMA INICIATIVA: em vez de só esperar comando, de vez em quando ele puxa assunto.
+  // É o outro lado da interação — sem isso o Smoll é um objeto que responde, não uma pessoa na sala.
+  let nextTalk = 14 + Math.random() * 26, pendingReply = 0
+  const smollTalk = (dt: number, dist: number) => {
+    // se ele falou e você não abriu a conversa, ele sente
+    if (pendingReply > 0 && (pendingReply -= dt) <= 0) { state.smollIgnored++; state.smollBond = Math.max(0, state.smollBond - 2); state.smollPatience = Math.max(0, state.smollPatience - 0.12) }
+    if (!anim || dialog.open || state.editing || pendingReply > 0 || dist > 6) return
+    if ((nextTalk -= dt) > 0) return
+    nextTalk = 26 + Math.random() * 70
+    const s = state.smollSees, m = state.smollMood, bd = mode === 'sleep' || mode === 'falling', h = s.hour
+    let line = ''
+    if (s.stare > 4 && bd) line = m === 'provocando' || m === 'entregue' ? pick(['… continua olhando. Eu não vou me mexer.', 'Você tá com uma cara de quem não veio só ver a cama.']) : pick(['Tem algo na minha cara?', 'Se for tirar foto, avisa antes.'])
+    else if (s.stare > 5) line = pick(['Tô te vendo aí parado me encarando.', 'Ou fala comigo, ou desencana.'])
+    else if (h < 5 || h >= 23) line = pick(['Essa hora acordado? Preocupante. Pra nós dois.', 'A casa fica boa de madrugada. Silenciosa, igual bug que não reproduz.'])
+    else if (m === 'entregue') line = pick(['Você tá indo embora?', 'Fica mais um pouco.'])
+    else if (m === 'irritado') line = pick(['…', 'hm.'])
+    else if (m === 'provocando') line = pick(['Você vai ficar aí parado mesmo?', 'Tô com uma ideia. Mas você tem que chegar mais perto.'])
+    else if (m === 'contido') line = pick(['Deixa.'])
+    else if (bd) line = pick(['A cama tá boa hoje. Vem ver.', 'Sabe o que é engraçado? Eu vim descansar e continuo pensando em código.'])
+    else if (s.held) line = pick(['O que você arrumou aí na mão?', 'Esse troço na sua mão não é meu, né.'])
+    else line = pick(['Ei. Tá tudo bem aí?', 'Tô aqui. Faz tempo que ninguém aparece.', 'Sabia que essa casa tem 3 bugs que eu nunca consertei? Faço de propósito.'])
+    pendingReply = 16
+    state.smollSaidAt = performance.now()
+    anim.play((m === 'provocando' || m === 'entregue') ? 'thumbs' : m === 'irritado' ? 'shrug' : pick(['wave', 'think', 'shrug'] as Clip[]))
+    toast('Smoll: ' + line, 4600)
+  }
   let acc = 0, yaw = 0
   return {
     update(dt: number, now: number, px: number, pz: number) {
@@ -261,6 +312,7 @@ export function buildSmoll(scene: THREE.Scene) {
           M.position.x += (r.x - M.position.x) * k; M.position.y += (r.y - M.position.y) * k; M.position.z += (r.z - M.position.z) * k
           yawM += wrap(r.ry - yawM) * k; M.rotation.set(0, yawM, r.rz)
           mode = r.mode; walk = r.w; lying = !!r.ly; anim.loco.bed = r.bd; anim.loco.pose = r.bp
+          if (r.bn !== undefined) state.smollBond += (r.bn - state.smollBond) * k // o humor viaja junto com o corpo
           if (!!r.st !== anim.standing) anim.stand(!!r.st)
           if (r.cn !== appliedN) { appliedN = r.cn; if (r.c) anim.play(r.c) }
           if (state.smollRed !== !!r.red || state.smollShorts !== !!r.sh) { state.smollRed = !!r.red; state.smollShorts = !!r.sh; outfitSync?.() }
@@ -310,25 +362,60 @@ export function buildSmoll(scene: THREE.Scene) {
             if (mode === 'rise') { yawM = 0 }
             // deitar: o tronco desce e as pernas sobem girando em torno da bacia, que fica na borda pra perna não cortar a quina da cama (colchão + cobertor, 0,67 m);
             // só no fim (pernas quase na horizontal, por cima do cobertor) ele escorrega pra trás até o travesseiro. ang = giro do corpo (0 sentado, 1 deitado)
+            if (anim.loco.pose === 'edge') lie = 0 // "sentado na quina da cama": senta e FICA sentado
             const ang = lie < 0.45 ? 0.78 * sm2(lie / 0.45) : 0.78 + 0.22 * sm2((lie - 0.45) / 0.55)
             const th = ang * Math.PI / 2, yp = 0.75 + 0.02 * sit * (1 - ang)                  // altura da bacia no corpo
-            const pxw = lie < 0.45 ? 14.32 - 0.2 * sm2(lie / 0.45) : 14.12 - 0.72 * sm2((lie - 0.45) / 0.55), pyw = 0.84 + 0.06 * Math.sin(Math.PI * lie) // bacia no mundo (sobe um pouco no meio: a perna passa por cima da quina)
+            const pxw = lie < 0.45 ? 14.32 - 0.2 * sm2(lie / 0.45) : 14.12 - 0.72 * sm2((lie - 0.45) / 0.55), pyw = LY_Y + 0.06 * Math.sin(Math.PI * lie) // bacia no mundo (sobe um pouco no meio: a perna passa por cima da quina)
             M.rotation.set(0, yawM, th)
             if (sit < 1) M.position.set(px, 0.07 * sit, 13); else M.position.set(pxw + Math.sin(th) * yp, pyw - Math.cos(th) * yp, 13)
             anim.loco.bed = { sit, lie: ang }; lying = false
             if (mode === 'falling' && modeT > 6.2) { mode = 'sleep'; anim.loco.bed = null }
             if (mode === 'rise' && modeT > 6.2) { mode = 'toDesk'; anim.loco.bed = null; wp = [[17.5, 12.2], [17.95, 13]]; yawM = 0; M.rotation.set(0, 0, 0); M.position.set(14.85, 0, 13) }
-          } else { lying = true; anim.loco.bed = null; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, 0.84, 13) } // dormindo
+          } else if (anim.loco.pose === 'edge') { anim.loco.bed = null; M.rotation.set(0, 0, 0); M.position.set(14.32, 0.07, 13) } // sentado na quina
+          else { lying = true; anim.loco.bed = null; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, LY_Y, 13) } // dormindo
         }
         zzS.visible = mode === 'sleep'
         if (zzS.visible) zzS.position.set(13.3, 1.25 + 0.12 * Math.sin(now * 1.5), 13)
         let look = toPlayer - yawM; look = wrap(look)
         anim.loco.walk = walk; anim.loco.lying = lying
-        anim.update(dt, now, look, dist < 5 && mode === 'desk', dist, Math.atan2((anim.standing ? 1.6 : 1.37) - (state.py + state.eye), Math.max(dist, 0.5))) // pitch: cabeça do Smoll vs olhos do jogador
+        // ---- PERCEPÇÃO: o que ele sabe de você. É a fonte de todo o contexto dele (fala, humor, gesto) ----
+        const bd = mode === 'sleep' || mode === 'falling'
+        const sees = state.smollSees
+        sees.dist = dist; sees.hour = gameHour(); sees.held = heldId()
+        sees.seat = state.seat ? (state.seat.lie ? 'cama' : state.seat.key) : ''
+        sees.seen = dist < 6.5 && Math.abs(look) < 1.15
+        sees.stare = getTarget()?.smoll ? sees.stare + dt : 0 // há quanto tempo você está MIRANDO nele
+        sees.near = dist < 2.4 || sees.stare > 0.15
+        // vínculo: sobe com atenção de perto (bem mais rápido na cama), esfria devagar quando você some
+        if (!remote) state.smollBond = Math.max(0, Math.min(100, state.smollBond + dt * (dist < 2.5 && !dialog.open ? (bd ? 0.9 + bedHeat(anim.loco.pose) : 0.15) : -0.03)))
+        if (!remote) state.smollPatience = Math.min(1, state.smollPatience + dt * 0.02)
+        const mood: Mood = state.smollPatience <= 0.001 ? 'irritado' : state.smollBond > 85 ? 'entregue' : state.smollBond > 60 ? 'provocando' : state.smollBond < 10 && state.smollIgnored >= 2 ? 'contido' : 'neutro'
+        state.smollMood = mood; anim.loco.mood = mood
+        // deitado o corpo está girado 90°: pra virar a cara pro seu lado o sinal do hy depende do lado da cama
+        anim.loco.gaze = -Math.sign(pz - 13) || 0
+        anim.loco.aside = state.seat?.lie ? Math.sign(state.seat.z - 13) : 0
+        state.smollMode = mode; state.smollPose = anim.loco.pose
+        // a cena "fecha" quando ele está na cama e você chega perto (FOV aplicado em main.ts)
+        state.bedFocus += ((bd && dist < 2.8 ? 1 : 0) - state.bedFocus) * Math.min(1, dt * 2.2)
+        // ---- encenação (Fase 4) ----
+        // coberta até a cintura só nas poses com as pernas esticadas: levantada, ela atravessaria o joelho
+        const straight = anim.loco.pose === 'normal' || anim.loco.pose === 'edge'
+        cobertaK += ((bd && straight ? 1 : 0) - cobertaK) * Math.min(1, dt * 1.6)
+        world.coberta(cobertaK)
+        world.camaLuz(bd ? 1 : 0)
+        // respiração + lençol: volume cai com a distância (só o anfitrião toca, pra não duplicar o som)
+        bedSfxT -= dt
+        if (bedSfxT <= 0) {
+          bedSfxT = 3 + Math.random() * 2.4
+          if (bd && dist < 7) breath(0.055 * Math.max(0, 1 - dist / 7) * (anim.loco.pose === 'normal' || anim.loco.pose === 'curl' ? 1 : 0.5))
+        }
+        if (bd && state.smollPose !== lastBedPose) { lastBedPose = state.smollPose; if (dist < 8) sheet(0.06 * Math.max(0, 1 - dist / 8)) }
+        smollTalk(dt, dist)
+        anim.update(dt, now, look, dist < 5 && (mode === 'desk' || bd), dist, Math.atan2((anim.standing ? 1.6 : 1.37) - (state.py + state.eye), Math.max(dist, 0.5))) // pitch: cabeça do Smoll vs olhos do jogador
         state.smollStanding = anim.standing
         if (!remote) { // anfitrião: publica o estado pra os outros desenharem
           const q = (n: number) => Math.round(n * 1000) / 1000, b = anim.loco.bed
-          state.smollOut = { x: q(M.position.x), y: q(M.position.y), z: q(M.position.z), ry: q(M.rotation.y), rz: q(M.rotation.z), w: walk, ly: lying ? 1 : 0, st: anim.standing ? 1 : 0, red: state.smollRed ? 1 : 0, sh: state.smollShorts ? 1 : 0, bd: b ? { sit: q(b.sit), lie: q(b.lie) } : null, bp: anim.loco.pose, c: anim.played.c, cn: anim.played.n, mode }
+          state.smollOut = { x: q(M.position.x), y: q(M.position.y), z: q(M.position.z), ry: q(M.rotation.y), rz: q(M.rotation.z), w: walk, ly: lying ? 1 : 0, st: anim.standing ? 1 : 0, red: state.smollRed ? 1 : 0, sh: state.smollShorts ? 1 : 0, bd: b ? { sit: q(b.sit), lie: q(b.lie) } : null, bp: anim.loco.pose, c: anim.played.c, cn: anim.played.n, mode, bn: Math.round(state.smollBond * 10) / 10 }
         }
         // cadeira acompanha o giro enquanto ele está sentado e recua quando ele levanta
         sitAmt += ((anim.standing ? 1 : 0) - sitAmt) * Math.min(1, dt * 2.5)

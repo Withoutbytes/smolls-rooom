@@ -205,7 +205,24 @@ function updateDrops(dt: number) {
     } else { o.g.rotation.x += dt * 9; o.g.rotation.z += dt * 5 } // gira no ar
   }
 }
-export function initHeld(camera: THREE.Camera, scene: THREE.Scene, phys: Phys) { world = { camera, scene, phys }; scene.add(camera); camera.add(handG); handG.position.set(0.24, -0.2, -0.5) }
+// ---- braço e mão em 1ª pessoa: é o que permite "tocar" nele e ver acontecer ----
+const armG = new THREE.Group()
+{
+  const skin = new THREE.MeshLambertMaterial({ color: 0xc68e65 }), sleeve = new THREE.MeshLambertMaterial({ color: 0x3b3b44 })
+  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.040, 0.052, 0.30, 10), skin); fore.rotation.x = Math.PI / 2; fore.position.z = 0.19; armG.add(fore)
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.060, 0.09, 10), sleeve); cuff.rotation.x = Math.PI / 2; cuff.position.z = 0.38; armG.add(cuff)
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.032, 0.10), skin); palm.position.set(0, 0, 0.02); armG.add(palm)
+  for (let i = 0; i < 4; i++) {
+    const fg = new THREE.Mesh(new THREE.BoxGeometry(0.017, 0.022, 0.055), skin)
+    fg.position.set(-0.030 + i * 0.020, 0, -0.062); fg.rotation.x = -0.25; armG.add(fg)
+  }
+  const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.05), skin); thumb.position.set(0.052, -0.006, -0.02); thumb.rotation.set(-0.2, -0.5, 0); armG.add(thumb)
+  armG.visible = false
+}
+export function initHeld(camera: THREE.Camera, scene: THREE.Scene, phys: Phys) {
+  world = { camera, scene, phys }; scene.add(camera); camera.add(handG); handG.position.set(0.24, -0.2, -0.5)
+  camera.add(armG)
+}
 function rebuildHeld() {
   const id = slots[sel]?.id ?? ''
   if (id === handId) return
@@ -223,8 +240,16 @@ export function updateHeld(dt: number, moving: boolean) {
   bob += dt * (moving ? 9 : 2); swing = Math.max(0, swing - dt * 3)
   const k = Math.sin(swing * Math.PI)
   handG.position.set(0.24 - k * 0.12, -0.2 + Math.sin(bob) * (moving ? 0.012 : 0.004) - k * 0.03, -0.5 - k * 0.15)
-  handG.visible = !state.driving
+  // mão em 1ª pessoa: sobe na direção do que você está tocando (state.touchAnim vai a 1 no toque e decai)
+  state.touchAnim = Math.max(0, state.touchAnim - dt * 1.15)
+  const t = state.touchAnim, sm = t * t * (3 - 2 * t)
+  armG.position.set(0.26 - 0.15 * sm, -0.30 + 0.16 * sm, -0.36 - 0.14 * sm)
+  armG.rotation.set(-0.30 - 0.55 * sm, 0.18 - 0.14 * sm, 0.14 + 0.10 * sm)
+  armG.visible = !state.driving && sm > 0.02
+  handG.visible = !state.driving && sm < 0.7
 }
+/** item na mão agora (id em ITEMS) — o Smoll usa isso pra perceber o que você segura */
+export const heldId = () => slots[sel]?.id ?? ''
 
 // ---------- usar o item (clique esquerdo) ----------
 const SELF: Record<Kind, (name: string, id: string) => string | null> = {

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import './loading'
 import { MAP, WALL, WALL_H, OUTDOOR, topAt } from './map'
 import { state, gateWalls, toast, gameHour, clock, type Vehicle } from './state'
-import { updateInteract, dialog } from './interact'
+import { updateInteract, dialog, tickHold } from './interact'
 import { buildProps, blockers, roofHeight, playerPos } from './props'
 import { PLACE } from './place'
 import { UM, JOIN, MAC, PAL, BAR } from './bairro'
@@ -328,7 +328,7 @@ const xrInput = () => {
     if (src.handedness === 'left') { lx = a[2] ?? 0; ly = a[3] ?? 0 } else { rx = a[2] ?? 0; trig ||= !!src.gamepad!.buttons[0]?.pressed }
   }
   if (Math.abs(rx) < 0.6) snapReady = true; else if (snapReady) { snapReady = false; xrTurn -= Math.sign(rx) * Math.PI / 6 }
-  if (trig && !trigPrev) dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }))
+  if (trig && !trigPrev) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); setTimeout(() => dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })), 90) } // gatilho = E (curto: fala)
   trigPrev = trig
   return [Math.abs(ly) > 0.15 ? -ly : 0, Math.abs(lx) > 0.15 ? lx : 0] // [frente, lado]
 }
@@ -337,7 +337,8 @@ addEventListener('contextmenu', (e) => e.preventDefault())
 let last = performance.now(), inK = 0 // inK: 0 fora, 1 dentro de casa (suavizado)
 const warm = new THREE.Color(0xffe0bd)
 renderer.setAnimationLoop((now) => {
-  const dt = Math.min((now - last) / 1000, 0.05); last = now
+  // __fast: debug pra acelerar o tempo em máquina sem GPU (1 = normal). Ver tools/pose-audit.html
+  const dt = Math.min((now - last) / 1000, 0.05) * ((window as any).__fast ?? 1); last = now
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
   const xr = renderer.xr.isPresenting
   const [xf, xs] = xr ? xrInput() : [0, 0]
@@ -372,12 +373,19 @@ renderer.setAnimationLoop((now) => {
   if (drv) driveStep(dt)
   else if (state.seat) { // sentado: preso no assento, câmera baixa, vira pra frente do móvel na primeira vez
     const s = state.seat; if (seatApplied !== s) { seatApplied = s; p.yaw = s.yaw; p.pitch = 0 }
-    p.x = s.x; p.z = s.z; p.y = s.y - 0.32; vy = 0; camera.position.set(s.x, s.y + 0.6, s.z)
+    p.x = s.x; p.z = s.z; p.y = s.y - 0.32; vy = 0
+    // deitado: o olho fica a ~13 cm do colchão (não a 60 cm de quem está sentado num banco)
+    camera.position.set(s.x, s.y + (s.lie ? 0.13 + 0.02 * Math.sin(now / 2400) : 0.6), s.z)
   } else if (!xr) camera.position.set(p.x, p.y + state.eye * (1 - 0.42 * p.crouch), p.z) // agachado: olhos 42% mais baixos
-  if (xr) { rig.position.set(p.x, p.y, p.z); rig.rotation.y = xrTurn } else { rig.position.set(0, 0, 0); rig.rotation.y = 0; camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ') }
+  if (xr) { rig.position.set(p.x, p.y, p.z); rig.rotation.y = xrTurn } else { rig.position.set(0, 0, 0); rig.rotation.y = 0; camera.rotation.set(p.pitch, p.yaw, state.seat?.roll ?? 0, 'YXZ') } // roll = cabeça deitada
+  if (!xr) { // a cena "fecha" quando você chega perto dele na cama (state.bedFocus vem do smoll.ts)
+    const fovWant = 70 - 7 * state.bedFocus
+    if (Math.abs(camera.fov - fovWant) > 0.01) { camera.fov = fovWant; camera.updateProjectionMatrix() }
+  }
   sky.position.set(p.x, 0, p.z); dirt.position.set(p.x, -0.02, p.z) // céu e chão acompanham o jogador: o mundo agora tem mais de 300 m
   props.update(dt, p.x, p.z, mapMode)
   net.update(dt, p)
+  tickHold() // VR não manda keyup: resolve o "segurar E" pelo tempo
   if (!mapMode) updateInteract(scene, camera)
   smoll.update(dt, now / 1000, p.x, p.z)
   if (mapMode) {

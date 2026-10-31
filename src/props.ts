@@ -138,11 +138,16 @@ export function buildProps(scene: THREE.Scene) {
   // assentos: E senta (câmera baixa, presa no lugar); WASD/espaço levanta. spots = lugares do móvel; pega o mais próximo que não esteja ocupado (por outro jogador)
   type Spot = { x: number; y: number; z: number; yaw: number }
   const spotKey = (sp: Spot) => `${sp.x.toFixed(1)}_${sp.z.toFixed(1)}`
-  const sitAct = (o: THREE.Object3D, spots: Spot[], label: string) => act(o, () => (spots.every((sp) => state.takenSeats.has(spotKey(sp))) ? 'Lugar ocupado' : label), () => {
+  // lie = deitar de lado (a câmera desce pro colchão e gira a cabeça: ver main.ts). msg = aviso ao sentar
+  const sitAct = (o: THREE.Object3D, spots: Spot[], label: string | (() => string), opt?: { lie?: boolean; msg?: string }) => act(o, () => (spots.every((sp) => state.takenSeats.has(spotKey(sp))) ? 'Lugar ocupado' : (typeof label === 'function' ? label() : label)), () => {
     const free = spots.filter((sp) => !state.takenSeats.has(spotKey(sp))).sort((a, b) => Math.hypot(a.x - playerPos.x, a.z - playerPos.z) - Math.hypot(b.x - playerPos.x, b.z - playerPos.z))[0]
     if (!free) { toast('Tá lotado! Espera alguém levantar.'); return }
-    state.seat = { ...free, key: spotKey(free), ex: free.x - Math.sin(free.yaw) * 0.8, ez: free.z - Math.cos(free.yaw) * 0.8 }
-    toast('Sentou. WASD ou espaço levanta · B abre os gestos (aparecem no espelho e pros outros).')
+    const lie = !!opt?.lie
+    // deitado: de que lado você fica define o roll da cabeça (a cama é x 12,1–14,2 / z 12,1–13,9)
+    state.seat = { ...free, key: spotKey(free), ex: free.x - Math.sin(free.yaw) * 0.8, ez: free.z - Math.cos(free.yaw) * 0.8,
+      lie: lie ? 1 : undefined, roll: lie ? (free.z < 13 ? -Math.PI / 2 : Math.PI / 2) : undefined }
+    if (lie) { state.seat.ex = 14.62; state.seat.ez = free.z } // levanta AO LADO da cama, não em cima do outro lugar
+    toast(opt?.msg ?? 'Sentou. WASD ou espaço levanta · B abre os gestos (aparecem no espelho e pros outros).')
   })
   // item que dá pra pegar (some e volta em 20 s): build monta as peças dentro do grupo, em coordenadas locais com y = 0 na base
   const thing = (x: number, y: number, z: number, label: string, msgs: string[], build: (g: THREE.Group) => void, hold = true) => {
@@ -458,7 +463,12 @@ export function buildProps(scene: THREE.Scene) {
   // cama: cabeceira na parede oeste
   box(0.1, 1.1, 1.9, 0x5a3a22, 12.08, 0, 13)
   box(2.15, 0.35, 1.8, 0x5a3a22, 13.15, 0.05, 13)
-  act(box(2.05, 0.25, 1.7, 0xf3efe6, 13.15, 0.4, 13), 'Tirar uma soneca', sleep)
+  // colchão: E deita. Dois lugares (um de cada lado dele). Se o Smoll estiver na cama, é "deitar ao lado dele".
+  sitAct(box(2.05, 0.25, 1.7, 0xf3efe6, 13.15, 0.4, 13),
+    [{ x: 13.40, y: 0.66, z: 12.55, yaw: Math.PI }, { x: 13.40, y: 0.66, z: 13.45, yaw: 0 }],
+    () => (state.smollMode === 'sleep' || state.smollMode === 'falling' ? 'Deitar ao lado dele' : 'Deitar na cama'),
+    { lie: true, msg: 'Deitou. WASD ou espaço levanta · segure E pra tocar nele · B abre os gestos.' })
+  act(box(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 12.35), 'Tirar uma soneca no travesseiro', sleep)
   const manta = tex(256, 256, (g, w, h) => {
     g.fillStyle = '#3d5a80'; g.fillRect(0, 0, w, h)
     g.fillStyle = '#e0a458'; for (let x = 0; x < w; x += 64) g.fillRect(x, 0, 14, h)
@@ -469,6 +479,18 @@ export function buildProps(scene: THREE.Scene) {
   box(1.2, 0.12, 1.74, 0x3d5a80, 13.7, 0.54, 13)
   box(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 12.35); box(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 13.65)
   block(12, 12.05, 14.2, 13.95, 0.66); block(12, 12.05, 12.2, 13.95, 1.1)  // cama (sobe) e cabeceira
+  // ---- Fase 4: coberta que sobe até a cintura e luz baixa de cena ----
+  // A coberta só é segura nas poses com as pernas esticadas (levantada, ela atravessaria o joelho).
+  const duv = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.1, 1.7), new THREE.MeshLambertMaterial({ map: manta })) // Lambert: a coberta pega sombra e volume
+  duv.position.set(13.9, 0.7, 13); duv.visible = false; scene.add(duv)
+  world.coberta = (k: number) => { // 0 = dobrada no pé da cama · 1 = cobrindo até a cintura
+    const c = Math.max(0, Math.min(1, k))
+    duv.visible = c > 0.03
+    duv.position.set(13.9 + 0.26 * (1 - c), 0.7 + 0.015 * c, 13)
+    duv.scale.set(1, 0.5 + 0.5 * c, 1)
+  }
+  const bedGlow = light(0xff9b52, 0, 2.6, 13.5, 1.35, 13) // luz cálida e baixa por cima da cama
+  world.camaLuz = (k: number) => { bedGlow.intensity = 1.15 * Math.max(0, Math.min(1, k)) }
   // criado-mudo + abajur
   box(0.5, 0.5, 0.45, 0x5a3a22, 12.27, 0, 11.5)
   cyl(0.05, 0.2, 0x222222, 12.27, 0.5, 11.5)

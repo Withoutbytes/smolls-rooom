@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>auditoria de poses na cama</title>
+<style>
+ body{margin:0;background:#0b0d10;color:#dfe6ee;font:12px/1.3 system-ui,sans-serif}
+ #wrap{position:relative;width:960px;height:1680px}
+ #wrap canvas{position:absolute;inset:0;display:block}
+ .lbl{position:absolute;padding:2px 5px;background:#000a;border-radius:3px;font:11px monospace;color:#9fe}
+ .hdr{position:absolute;font:11px monospace;color:#ffd479}
+</style>
+</head>
+<body>
+<div id="wrap"></div>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { buildRig } from '/src/rig.ts'
+import { bedPose, BED_POSES } from '/src/smollAnim.ts'
+
+const CW = 320, CH = 240, COLS = 3, ROWS = BED_POSES.length
+const W = CW * COLS, H = CH * ROWS
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+renderer.setSize(W, H); renderer.setPixelRatio(1)
+const wrap = document.getElementById('wrap')
+wrap.style.width = W + 'px'; wrap.style.height = H + 'px'
+wrap.appendChild(renderer.domElement)
+
+const S = 1.75 / 1.99
+const gltf = await new GLTFLoader().loadAsync('/models/smoll_real_hq.glb')
+let src
+gltf.scene.traverse((o) => { if (!src && o.isMesh) src = o })
+src.geometry.computeVertexNormals()
+
+// ---- cena: a cama REAL de props.ts (quarto Q: x 12..19, z 11..15) + o Smoll deitado ----
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0e1014)
+scene.add(new THREE.HemisphereLight(0xffffff, 0x222222, 1.15))
+const key = new THREE.DirectionalLight(0xffffff, 1.3); key.position.set(9, 12, 16); scene.add(key)
+const fill = new THREE.DirectionalLight(0xaabbff, 0.5); fill.position.set(-8, 6, -10); scene.add(fill)
+
+const lm = (c) => new THREE.MeshLambertMaterial({ color: c })
+// piso do quarto
+const floor = new THREE.Mesh(new THREE.BoxGeometry(7, 0.02, 4), lm(0x3a3a52))
+floor.position.set(15.5, -0.01, 13); scene.add(floor)
+// cama (igual props.ts)
+const bd = (w, h, d, c, x, y, z, ry = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lm(c)); m.position.set(x, y + h / 2, z); m.rotation.y = ry; scene.add(m); return m }
+bd(0.1, 1.1, 1.9, 0x5a3a22, 12.08, 0, 13)          // cabeceira
+bd(2.15, 0.35, 1.8, 0x5a3a22, 13.15, 0.05, 13)      // estrado
+bd(2.05, 0.25, 1.7, 0xf3efe6, 13.15, 0.4, 13)       // colchão (topo 0,65)
+bd(1.2, 0.12, 1.74, 0x3d5a80, 13.7, 0.54, 13)       // cobertor
+bd(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 12.35)    // travesseiros
+bd(0.45, 0.14, 0.7, 0xffffff, 12.5, 0.65, 13.65)
+
+const groups = {}
+for (const pose of BED_POSES) {
+  const rig = buildRig(src.geometry, new THREE.MeshLambertMaterial({ color: 0xb98a63 }))
+  const M = new THREE.Group(); M.position.set(14.15, 0.78, 13); M.rotation.set(0, 0, Math.PI / 2)
+  const holder = new THREE.Group(); holder.rotation.y = Math.PI / 2; M.add(holder)
+  const mw = new THREE.Group(); mw.scale.setScalar(S); mw.position.y = 0.999 * S; mw.add(rig.mesh); holder.add(mw)
+  rig.apply(bedPose(1, 1, pose))
+  M.visible = false
+  scene.add(M); groups[pose] = M
+}
+
+// ---- câmeras ----
+const mk = (fov, p, t, up) => { const c = new THREE.PerspectiveCamera(fov, CW / CH, 0.05, 60); c.position.set(...p); if (up) c.up.set(...up); c.lookAt(...t); return c }
+const VIEWS = [
+  { n: 'jogador (olho 1,07 m)', c: mk(70, [14.95, 1.07, 14.6], [13.15, 0.82, 13.0]) },
+  { n: 'lado (+z, 40 mm)', c: mk(42, [13.35, 1.02, 15.55], [13.4, 0.80, 13.0]) },
+  { n: 'de cima (planta)', c: mk(46, [13.6, 4.2, 13.01], [13.6, 0.66, 13.0], [0, 0, -1]) },
+]
+
+// rótulos
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  if (r === 0) { const d = document.createElement('div'); d.className = 'hdr'; d.textContent = VIEWS[c].n; d.style.left = c * CW + 6 + 'px'; d.style.top = 4 + 'px'; wrap.appendChild(d) }
+  const d = document.createElement('div'); d.className = 'lbl'
+  d.textContent = BED_POSES[r]; d.style.left = c * CW + 6 + 'px'; d.style.top = r * CH + 22 + 'px'; wrap.appendChild(d)
+}
+
+renderer.setScissorTest(true)
+for (let r = 0; r < ROWS; r++) {
+  const pose = BED_POSES[r]
+  for (const g of Object.values(groups)) g.visible = false
+  groups[pose].visible = true
+  for (let c = 0; c < COLS; c++) {
+    const x = c * CW, y = H - (r + 1) * CH
+    renderer.setViewport(x, y, CW, CH); renderer.setScissor(x, y, CW, CH)
+    renderer.render(scene, VIEWS[c].c)
+  }
+}
+window.__ready = true
+</script>
+</body>
+</html>

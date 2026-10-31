@@ -2,6 +2,10 @@ import type { Object3D } from 'three'
 // veículo dirigível: g = grupo (frente = -x local), eye = posição do olhar do motorista (local, já escalada), len/wid = tamanho da caixa de colisão
 export type Vehicle = { g: Object3D; kind: 'car' | 'bike'; eye: [number, number, number]; len: number; wid: number; top: number; rects: number[][]; ox: number; v: number }
 export const vehicles: Vehicle[] = []
+// humor do Smoll: é a memória que transforma "animação" em "interação". Ver smollMood em state.
+export type Mood = 'neutro' | 'contido' | 'provocando' | 'entregue' | 'irritado'
+// o que o Smoll percebe do jogador (atualizado ~4x/s em smoll.ts) — é a única fonte de contexto dele
+export type Sees = { dist: number; ang: number; seen: boolean; stare: number; seat: string; held: string; hour: number; near: boolean }
 // estado único do jogo (tudo que o multiplayer vai precisar sincronizar mora aqui)
 export const state = {
   mangas: 0,
@@ -13,9 +17,20 @@ export const state = {
   gateOpen: false,
   doorOpen: false,
   smollStanding: false,
+  smollBond: 0,              // 0..100 vínculo: sobe com atenção, cai com desprezo
+  smollMood: 'neutro' as Mood,
+  smollPatience: 1,          // 0..1: cai quando você insiste ou ignora
+  smollSees: { dist: 99, ang: 0, seen: false, stare: 0, seat: '', held: '', hour: 8, near: false } as Sees,
+  smollMode: 'desk' as string, // modo atual da máquina de estados do Smoll (desk/toBed/falling/sleep/rise/…)
+  smollPose: 'normal' as string, // pose na cama em vigor
+  smollSaidAt: 0,            // última fala espontânea dele (ms) — o agendador respeita isso
+  smollIgnored: 0,           // quantas falas dele você deixou passar
+  bedFocus: 0,               // 0..1: aproximação de FOV quando ele está na cama e você chega perto
+  touchAnim: 0,              // 0..1: quanto a mão em 1ª pessoa está avançando num toque
   photoReq: null as null | ((url: string) => void), // pedido de foto: main.ts entrega o quadro depois de renderizar
   avatar: null as null | { visible: boolean }, // corpo do próprio jogador: só aparece no reflexo do espelho (em primeira pessoa você não se vê)
-  seat: null as null | { x: number; y: number; z: number; yaw: number; key: string; ex: number; ez: number }, // assento ocupado pelo jogador (ex/ez = onde ele levanta)
+  // assento ocupado pelo jogador (ex/ez = onde ele levanta); lie 0..1 deitado + roll do corpo (ver main.ts)
+  seat: null as null | { x: number; y: number; z: number; yaw: number; key: string; ex: number; ez: number; lie?: number; roll?: number },
   takenSeats: new Set<string>(), // assentos ocupados por outros jogadores (vem do servidor)
   myEmote: { id: '', n: 0 },     // último gesto do jogador (n cresce a cada gesto, pra rede e pro avatar do espelho)
   power: true,
@@ -45,7 +60,7 @@ export const DAY_MS = 20 * 60 * 1000
 export const clock = { h: 8, at: performance.now() }
 export const gameHour = () => (clock.h + ((performance.now() - clock.at) / DAY_MS) * 24) % 24
 // ações do mundo que o Smoll pode executar sozinho (props.ts liga cada uma): luz/ventilador por cômodo, TV, chuveiro
-export const world = { luz: {} as Record<string, () => void>, ventilador: {} as Record<string, () => void>, tv: () => {}, chuveiro: (_on: boolean) => {}, cozinha: { cafe: () => {}, louca: () => {}, cozinhar: () => {}, almocar: () => {}, guardar: () => {} }, acao: {} as Record<string, () => void> } // acao: tarefas novas do Smoll (oficina, horta, churrasco, sala, varanda)
+export const world = { luz: {} as Record<string, () => void>, ventilador: {} as Record<string, () => void>, tv: () => {}, chuveiro: (_on: boolean) => {}, coberta: (_k: number) => {}, camaLuz: (_k: number) => {}, cozinha: { cafe: () => {}, louca: () => {}, cozinhar: () => {}, almocar: () => {}, guardar: () => {} }, acao: {} as Record<string, () => void> } // acao: tarefas novas do Smoll (oficina, horta, churrasco, sala, varanda)
 // itens da mesa do Smoll que sumiram (alguém pegou): o Smoll repõe bebidas indo à geladeira/cafeteira; o resto volta sozinho depois de um tempo
 export const deskMissing: { name: string; kind: 'drink' | 'cafe' | 'other'; at: number; restore: () => void }[] = []
 export const gateWalls: { visible: boolean }[] = []  // paredes 'P' do portão, escondidas quando abre
