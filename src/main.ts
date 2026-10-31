@@ -15,6 +15,7 @@ import { tv, cssR } from './tv'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { initFx } from './fx'
 import { pbr, FLOOR_TEX } from './tex'
+import { VRButton } from 'three/examples/jsm/webxr/VRButton.js'
 
 const H = 2.6
 const R = 0.2
@@ -25,6 +26,7 @@ scene.background = new THREE.Color(0x8cc4f2)
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200)
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }) // alpha: o "buraco" da TV deixa ver o iframe do YouTube por trás
 renderer.setSize(innerWidth, innerHeight)
+renderer.xr.enabled = true; renderer.xr.setFoveation(1)
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.domElement.style.cssText = 'position:fixed;inset:0;z-index:1'
 document.body.append(cssR.domElement, renderer.domElement)
@@ -311,6 +313,21 @@ const driveStep = (dt: number) => {
 }
 
 initHeld(camera, scene, { ground: groundAt, free })
+// VR: o headset sobrescreve a pose da câmera, então ela vira filha de um "rig" que fica nos pés do jogador. Analógico esq. anda, dir. gira (estalos de 30°), gatilho = E
+const rig = new THREE.Group(); scene.add(rig); rig.add(camera)
+document.body.append(VRButton.createButton(renderer))
+let xrTurn = 0, snapReady = true, trigPrev = false
+const xrInput = () => {
+  let lx = 0, ly = 0, rx = 0, trig = false
+  for (const src of renderer.xr.getSession()?.inputSources ?? []) {
+    const a = src.gamepad?.axes; if (!a) continue
+    if (src.handedness === 'left') { lx = a[2] ?? 0; ly = a[3] ?? 0 } else { rx = a[2] ?? 0; trig ||= !!src.gamepad!.buttons[0]?.pressed }
+  }
+  if (Math.abs(rx) < 0.6) snapReady = true; else if (snapReady) { snapReady = false; xrTurn -= Math.sign(rx) * Math.PI / 6 }
+  if (trig && !trigPrev) dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }))
+  trigPrev = trig
+  return [Math.abs(ly) > 0.15 ? -ly : 0, Math.abs(lx) > 0.15 ? lx : 0] // [frente, lado]
+}
 initPhone(camera, p)
 addEventListener('contextmenu', (e) => e.preventDefault())
 let last = performance.now(), inK = 0 // inK: 0 fora, 1 dentro de casa (suavizado)
@@ -318,7 +335,10 @@ const warm = new THREE.Color(0xffe0bd)
 renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.05); last = now
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
-  const f = lock * (+keys.has('KeyW') - +keys.has('KeyS')), s = lock * (+keys.has('KeyD') - +keys.has('KeyA'))
+  const xr = renderer.xr.isPresenting
+  const [xf, xs] = xr ? xrInput() : [0, 0]
+  if (xr) { p.yaw = xrTurn + camera.rotation.y; p.pitch = 0 } // anda na direção em que a cabeça olha
+  const f = lock * (+keys.has('KeyW') - +keys.has('KeyS') + xf), s = lock * (+keys.has('KeyD') - +keys.has('KeyA') + xs)
   const wantCrouch = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !drv && !state.seat && !!lock
   p.crouch += ((wantCrouch ? 1 : 0) - p.crouch) * Math.min(1, dt * 10)
   const sp = (keys.has('KeyR') ? 3.2 : 1.8 - 0.9 * p.crouch) * state.speed * dt // R corre, Shift agacha (anda devagar); passos menores combinam com o corpo menor
@@ -349,8 +369,8 @@ renderer.setAnimationLoop((now) => {
   else if (state.seat) { // sentado: preso no assento, câmera baixa, vira pra frente do móvel na primeira vez
     const s = state.seat; if (seatApplied !== s) { seatApplied = s; p.yaw = s.yaw; p.pitch = 0 }
     p.x = s.x; p.z = s.z; p.y = s.y - 0.32; vy = 0; camera.position.set(s.x, s.y + 0.6, s.z)
-  } else camera.position.set(p.x, p.y + state.eye * (1 - 0.42 * p.crouch), p.z) // agachado: olhos 42% mais baixos
-  camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ')
+  } else if (!xr) camera.position.set(p.x, p.y + state.eye * (1 - 0.42 * p.crouch), p.z) // agachado: olhos 42% mais baixos
+  if (xr) { rig.position.set(p.x, p.y, p.z); rig.rotation.y = xrTurn } else { rig.position.set(0, 0, 0); rig.rotation.y = 0; camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ') }
   sky.position.set(p.x, 0, p.z); dirt.position.set(p.x, -0.02, p.z) // céu e chão acompanham o jogador: o mundo agora tem mais de 300 m
   props.update(dt, p.x, p.z, mapMode)
   net.update(dt, p)
@@ -378,7 +398,7 @@ renderer.setAnimationLoop((now) => {
   if ((cullT -= dt) < 0) { cullT = 0.5; cull(p.x, p.z, mapMode) }
   if ((frame++ & 1) === 0) renderer.shadowMap.needsUpdate = true
   if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2) · ao ${fx?.ao ? 'on' : 'off'} (F3)`; fpsN = fpsT = 0 }
-  if (fx?.on && !mapMode) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera)
+  if (fx?.on && !mapMode && !xr) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera)
   if (state.photoReq) { const f = state.photoReq; state.photoReq = null; f(renderer.domElement.toDataURL('image/jpeg', 0.75)) } // foto do celular
   if (!mapMode) tv.render(camera)
 })
