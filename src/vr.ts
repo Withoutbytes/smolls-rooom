@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { dialog, dialogView, pickOpt, closeDialog } from './interact'
-import { makeArm, attachHeld, useHeld, cycleSlot } from './inventory'
+import { makeArm, curlArm, attachHeld, useHeld, cycleSlot } from './inventory'
 
 // VR: cada controle vira um braço com mão (e o item da mão do jogador), com laser pra apontar.
 // Gatilho = E (falar/agir) ou escolher opção no painel · grip = usar o item · A/X e B/Y = próximo/anterior da hotbar · analógico esq. anda, dir. gira 30°
@@ -38,7 +38,7 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
     const arm = makeArm(); c.add(arm)
     const laser = noRay(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -3)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })))
     c.add(laser)
-    const s = { c, arm, laser, hand: '', down: false, grip: false, a: false, b: false }
+    const s = { c, arm, laser, hand: '', cur: [0, 0, 0], down: false, grip: false, a: false, b: false }
     c.addEventListener('connected', (e: any) => { s.hand = e.data.handedness; if (s.hand === 'left') { c.remove(arm); s.arm = makeArm(true); c.add(s.arm) } })
     return s
   })
@@ -115,7 +115,7 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
     /** controle apontando (o último que apertou o gatilho) — updateInteract mira por ele */
     pointer: () => pointer.c as THREE.Object3D,
     /** chamar a cada quadro em VR; devolve [frente, lado, giro em rad] */
-    update(): [number, number, number] {
+    update(dt: number): [number, number, number] {
       let fwd = 0, side = 0, turn = 0
       const r = right(); if (held !== ctl.indexOf(r)) { held = ctl.indexOf(r); attachHeld(r.c) }
       if (dialog.open) { if (!wasOpen) { place(); drawn = '' } wasOpen = true; panel.mesh.visible = true; hover = rowAt(pointer); drawPanel() }
@@ -136,6 +136,10 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
         if (a && !s.a && !dialog.open) cycleSlot(1)
         if (bb && !s.b && !dialog.open) cycleSlot(-1)
         s.grip = grip; s.a = a; s.b = bb
+        const k = Math.min(1, dt * 20), tb = pad.buttons // dedos seguem o analógico dos botões, suavizados
+        s.cur[0] += ((tb[0]?.value ?? 0) - s.cur[0]) * k; s.cur[1] += ((tb[1]?.value ?? 0) - s.cur[1]) * k
+        s.cur[2] += ((a || bb || tb[3]?.pressed || tb[3]?.touched || tb[4]?.touched || tb[5]?.touched ? 1 : 0) - s.cur[2]) * k
+        curlArm(s.arm, s.cur[0], s.cur[1], s.cur[2])
       })
       drawHud(); drawLog()
       return [fwd, side, turn]

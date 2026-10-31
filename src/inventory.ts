@@ -212,12 +212,21 @@ export function makeArm(left = false) {
   const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.040, 0.052, 0.30, 10), skin); fore.rotation.x = Math.PI / 2; fore.position.z = 0.19; g.add(fore)
   const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.060, 0.09, 10), sleeve); cuff.rotation.x = Math.PI / 2; cuff.position.z = 0.38; g.add(cuff)
   const palm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.032, 0.10), skin); palm.position.set(0, 0, 0.02); g.add(palm)
+  const fingers: THREE.Group[] = [] // pivôs nos nós dos dedos: girar em x fecha o dedo (ver curlArm)
   for (let i = 0; i < 4; i++) {
-    const fg = new THREE.Mesh(new THREE.BoxGeometry(0.017, 0.022, 0.055), skin)
-    fg.position.set(sx * (-0.030 + i * 0.020), 0, -0.062); fg.rotation.x = -0.25; g.add(fg)
+    const pv = new THREE.Group(), fg = new THREE.Mesh(new THREE.BoxGeometry(0.017, 0.022, 0.055), skin)
+    pv.position.set(sx * (-0.030 + i * 0.020), 0, -0.035); fg.position.z = -0.027; pv.add(fg); pv.rotation.x = -0.25; g.add(pv); fingers.push(pv)
   }
-  const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.05), skin); thumb.position.set(sx * 0.052, -0.006, -0.02); thumb.rotation.set(-0.2, -0.5 * sx, 0); g.add(thumb)
+  const tp = new THREE.Group(), thumb = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.05), skin); thumb.position.z = -0.025
+  tp.position.set(sx * 0.052, -0.006, -0.0); tp.rotation.set(-0.2, -0.5 * sx, 0); tp.add(thumb); g.add(tp)
+  g.userData = { fingers, thumb: tp, sx }
   return g
+}
+/** fecha a mão: index/rest = 0..1 (gatilho, grip), thumb = 0..1 (polegar apoiado num botão) */
+export function curlArm(g: THREE.Object3D, index: number, rest: number, thumb: number) {
+  const { fingers, thumb: tp, sx } = g.userData as { fingers: THREE.Object3D[]; thumb: THREE.Object3D; sx: number }
+  fingers.forEach((f, i) => { f.rotation.x = -0.25 - (i === 0 ? index : rest) * 1.25 })
+  tp.rotation.y = sx * (-0.5 + thumb * 0.8); tp.rotation.x = -0.2 - thumb * 0.3
 }
 const armG = makeArm(); armG.visible = false
 /** VR: o item da mão passa a morar no controle (null = volta pra câmera) */

@@ -334,7 +334,7 @@ renderer.setAnimationLoop((now) => {
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
   const xr = renderer.xr.isPresenting
   let [xf, xs, xt] = [0, 0, 0]
-  if (xr) try { [xf, xs, xt] = vr.update() } catch (e) { vrLog('FALHA vr.update', e) }
+  if (xr) try { [xf, xs, xt] = vr.update(dt) } catch (e) { vrLog('FALHA vr.update', e) }
   if (xr) vr.drawLog()
   xrTurn += xt
   if (xr) { p.yaw = xrTurn + camera.rotation.y; p.pitch = 0 } // anda na direção em que a cabeça olha
