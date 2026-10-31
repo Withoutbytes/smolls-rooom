@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { clock, state, WS_URL } from './state'
+import { clock, state, WS_URL, shared } from './state'
 import { loadVisitorModel, createVisitor, visitorReady, HEIGHT } from './visitor'
 
 // Multiplayer: manda a posição ~15x/s e desenha os outros jogadores (corpo simples + nome). Sem servidor, segue single player.
@@ -25,7 +25,10 @@ export function connectNet(scene: THREE.Scene) {
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data)
       if (m.h !== undefined) { clock.h = m.h; clock.at = performance.now() } // hora do servidor
-      if (m.t === 'hi') { self = m.id; return }
+      if (m.t === 'hi') { self = m.id; for (const [k, v] of Object.entries(m.sh ?? {})) applyShared(k, v); return } // quem entra depois recebe o mundo como está
+      if (m.t === 'sh') { applyShared(m.k, m.v); return }
+      if (m.t === 'cmd') { state.cmd(m.c); return } // pedido de outro jogador pro Smoll (só o anfitrião recebe)
+      state.smollHost = m.hid === self; state.smollRemote = m.sm ?? null
       const seen = new Set<string>(), taken = new Set<string>()
       for (const q of m.p as { id: string; x: number; y?: number; z: number; yaw: number; name: string; sit?: string; e?: string; en?: number; c?: number }[]) {
         if (q.id === self) continue
@@ -51,8 +54,11 @@ export function connectNet(scene: THREE.Scene) {
       state.takenSeats = taken
       for (const [id, o] of others) if (!seen.has(id)) { scene.remove(o.g); others.delete(id) }
     }
-    ws.onclose = () => { others.forEach((o) => scene.remove(o.g)); others.clear(); setTimeout(open, 3000) } // tenta reconectar
+    ws.onclose = () => { state.smollHost = true; state.smollRemote = null; others.forEach((o) => scene.remove(o.g)); others.clear(); setTimeout(open, 3000) } // tenta reconectar
   }
+  const applyShared = (k: string, v: unknown) => { const s = shared.get(k); if (s) { s.last = v; if (s.get() !== v) s.set(v) } }
+  state.smollCmd = (c) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ cmd: c })) }
+  let shT = 0
   open()
   return {
     update(dt: number, p: { x: number; y: number; z: number; yaw: number; crouch?: number }) {
@@ -64,7 +70,11 @@ export function connectNet(scene: THREE.Scene) {
         if (state.myEmote.n !== seenEmote) { seenEmote = state.myEmote.n; selfV.emote(state.myEmote.id) } // seu gesto aparece no espelho
         selfV.update(dt, performance.now() / 1000, selfSpeed > 0.15 && selfSpeed < 8 ? selfSpeed : 0, !!state.seat, (p.crouch ?? 0) > 0.5)
       }
-      if (ws?.readyState === 1 && (sendT += dt) > 0.066) { sendT = 0; ws.send(JSON.stringify({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, name, sit: state.seat?.key ?? '', e: state.myEmote.id, en: state.myEmote.n, c: (p.crouch ?? 0) > 0.5 })) }
+      if (ws?.readyState === 1 && (shT += dt) > 0.2) { // vigia mudanças locais no mundo e manda
+        shT = 0
+        for (const [k, s] of shared) { const v = s.get(); if (v !== s.last) { s.last = v; ws.send(JSON.stringify({ sh: { k, v } })) } }
+      }
+      if (ws?.readyState === 1 && (sendT += dt) > 0.066) { sendT = 0; ws.send(JSON.stringify({ sm: state.smollHost ? state.smollOut : undefined, x: p.x, y: p.y, z: p.z, yaw: p.yaw, name, sit: state.seat?.key ?? '', e: state.myEmote.id, en: state.myEmote.n, c: (p.crouch ?? 0) > 0.5 })) }
       for (const o of others.values()) { // suaviza entre as mensagens
         const k = Math.min(1, dt * 12), px = o.g.position.x, pz = o.g.position.z
         o.g.position.x += (o.x - px) * k; o.g.position.z += (o.z - pz) * k; o.g.position.y += (o.y - o.g.position.y) * k; o.g.rotation.y += (o.yaw - o.g.rotation.y) * k

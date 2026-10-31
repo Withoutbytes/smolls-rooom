@@ -1,10 +1,11 @@
 // Worker do Smoll's Room na Cloudflare: serve o site (assets), o multiplayer (/ws → Durable Object "Room", sala única) e o proxy do navegador (/proxy).
 // Equivale a server/index.js + server/proxy.js (que continuam servindo o desenvolvimento local).
-const num = (v, lo, hi, d = 0) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d)
+import { num, cleanSm, CMD_RE, okShared } from '../server/shared.js'
 const DAY_MS = 20 * 60 * 1000 // dia de jogo = 20 min; começa às 8h
 
 export class Room {
-  constructor() { this.players = new Map(); this.socks = new Set(); this.next = 0; this.start = Date.now(); this.timer = 0 }
+  constructor() { this.players = new Map(); this.socks = new Set(); this.next = 0; this.start = Date.now(); this.timer = 0; this.conn = new Map(); this.sm = null; this.sh = new Map() }
+  hostId() { return this.players.keys().next().value } // anfitrião = o jogador mais antigo na sala
   hour() { return (8 + ((Date.now() - this.start) / DAY_MS) * 24) % 24 }
   fetch(req) {
     if (req.headers.get('upgrade') !== 'websocket') return new Response('ws', { status: 426 })
@@ -12,11 +13,17 @@ export class Room {
     ws.accept()
     const id = String(++this.next)
     this.players.set(id, { id, x: 15.5, z: 8.5, yaw: 0, name: 'Visitante' })
-    this.socks.add(ws)
-    ws.send(JSON.stringify({ t: 'hi', id, h: this.hour() }))
+    this.socks.add(ws); this.conn.set(id, ws)
+    ws.send(JSON.stringify({ t: 'hi', id, h: this.hour(), sh: Object.fromEntries(this.sh) }))
     ws.addEventListener('message', (e) => {
       try {
         const m = JSON.parse(e.data), p = this.players.get(id)
+        if (m.cmd !== undefined) { const h = this.hostId(); if (h !== id && CMD_RE.test(m.cmd)) this.conn.get(h)?.send(JSON.stringify({ t: 'cmd', c: m.cmd })); return } // pedido pro Smoll: vai pro anfitrião
+        if (m.sh) { // mudança no mundo: guarda e repassa pros outros
+          if (okShared(m.sh.k, m.sh.v) && (this.sh.has(m.sh.k) || this.sh.size < 300)) { this.sh.set(m.sh.k, m.sh.v); const o = JSON.stringify({ t: 'sh', k: m.sh.k, v: m.sh.v }); for (const [i, s] of this.conn) if (i !== id) try { s.send(o) } catch { /* caiu */ } }
+          return
+        }
+        if (id === this.hostId() && m.sm) this.sm = cleanSm(m.sm)
         p.x = num(m.x, -110, 180, p.x); p.z = num(m.z, -120, 225, p.z); p.yaw = num(m.yaw, -10, 10, p.yaw)
         p.y = num(m.y, -2, 30, p.y ?? 0)
         p.name = String(m.name ?? 'Visitante').slice(0, 16)
@@ -26,10 +33,10 @@ export class Room {
         p.c = m.c ? 1 : 0
       } catch { /* mensagem inválida: ignora */ }
     })
-    const bye = () => { this.players.delete(id); this.socks.delete(ws); if (!this.socks.size) { clearInterval(this.timer); this.timer = 0 } }
+    const bye = () => { if (id === this.hostId()) this.sm = null; this.players.delete(id); this.socks.delete(ws); this.conn.delete(id); if (!this.socks.size) { clearInterval(this.timer); this.timer = 0; this.sh.clear() } }
     ws.addEventListener('close', bye); ws.addEventListener('error', bye)
     if (!this.timer) this.timer = setInterval(() => { // 15 Hz só enquanto houver gente na sala
-      const msg = JSON.stringify({ t: 's', p: [...this.players.values()], h: this.hour() })
+      const msg = JSON.stringify({ t: 's', p: [...this.players.values()], h: this.hour(), hid: this.hostId(), sm: this.sm })
       for (const s of this.socks) try { s.send(msg) } catch { /* socket caiu */ }
     }, 66)
     return new Response(null, { status: 101, webSocket: client })

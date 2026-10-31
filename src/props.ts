@@ -11,7 +11,7 @@ import { openPanel, openChest } from './menu'
 import { pcState } from './code'
 import { openPhone } from './phone'
 import { UM, JOIN, MAC, PAL, BAR, WORLD } from './bairro'
-import { state, world, gameHour, vehicles, type Vehicle, toast, sleep, pick, setGate } from './state'
+import { state, world, gameHour, vehicles, type Vehicle, toast, sleep, pick, setGate, share } from './state'
 
 type Rect = [number, number, number, number, number, number] // x0, z0, x1, z1, topo, base (m): dá pra subir em cima quando topo ≤ altura dos pés + degrau
 
@@ -121,6 +121,7 @@ export function buildProps(scene: THREE.Scene) {
       const dm = box(w / 2 - 0.01, h - 0.02, t, c, (-s * w) / 4, 0.01, (face * t) / 2, g)
       box(0.03, 0.14, 0.03, 0xc9b037, -s * (w / 2 - 0.07), h / 2 - 0.07, face * 0.04, g)
       const e = { g, a: 0 }; doors.push(e); mine.push(e)
+      share(`arm.${cx}_${y}_${cz}`, () => open, setOpen)
       act(dm, () => (open ? 'Fechar armário' : 'Abrir armário'), () => {
         setOpen(!open)
         if (open) toast(pick(msgs))
@@ -208,6 +209,7 @@ export function buildProps(scene: THREE.Scene) {
     const e = { g: door, a: 0 }; doors.push(e)
     const setOpen = (v: boolean) => { open = v; e.a = open ? (stock === 'cozinha' ? Math.PI : 1.9) : 0; lightF.intensity = open ? 1.6 : 0 }
     if (stock === 'cozinha') world.acao.geladeira = ((ms = 4000) => { setOpen(true); setTimeout(() => setOpen(false), ms) }) as () => void // o Smoll abre e fecha a geladeira
+    share('gel.' + stock, () => open, setOpen)
     act(panel, () => (open ? 'Fechar geladeira' : 'Abrir geladeira'), () => {
       setOpen(!open)
       if (open) toast(pick(stock === 'cozinha' ? ['Kuat gelada, leite, ovos e as mangas do quintal.', 'Tem Kuat de sobra. Aproveita.', 'Gelada. Cheira a Kuat e cuscuz.'] : ['Só cerveja, pequi e uma Kuat esquecida.', 'Cheiro de fim de semana.']))
@@ -286,6 +288,7 @@ export function buildProps(scene: THREE.Scene) {
   const gp = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.0), new THREE.MeshBasicMaterial({ map: gateTex, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide }))
   gp.position.set(27.9, 1.0, 3.5); gp.rotation.y = Math.PI / 2; gate.add(gp)
   act(gp, () => (state.gateOpen ? 'Fechar portão' : 'Abrir portão'), () => setGate(!state.gateOpen))
+  share('gate', () => state.gateOpen, setGate)
   for (const z of [0.9, 6.1]) { box(0.5, 2.2, 0.5, mosaicMat(), 28.5, 0, z); box(0.6, 0.08, 0.6, 0x7d7d7a, 28.5, 2.2, z) } // colunas de pedra do portão
   // ferragens do muro (lado da rua)
   const meter = box(0.05, 0.32, 0.22, 0xdddddd, 29.03, 1.4, 8.4); box(0.02, 0.1, 0.1, 0x88aacc, 29.06, 1.55, 8.4) // caixa do medidor
@@ -371,6 +374,7 @@ export function buildProps(scene: THREE.Scene) {
   const lidG = new THREE.Group(); lidG.position.set(7.4, 0.57, 12.2); scene.add(lidG)
   cyl(0.24, 0.025, 0xfafafa, 0.22, 0, 0, lidG)
   let lidOpen = false, lidA = 0, flushT = 0
+  share('tampa', () => lidOpen, (v) => (lidOpen = v))
   act(lidG, () => (lidOpen ? 'Fechar a tampa' : 'Abrir a tampa'), () => { lidOpen = !lidOpen; toast(lidOpen ? 'Tampa aberta.' : 'Tampa fechada. Boa educação.') })
   act(wc, 'Usar a privada', () => toast(lidOpen ? pick(['Sentou, pensou na vida e no bug de produção. 🚽', 'Cuidado com o celular, ele cai. Já caiu dois.', 'Missão cumprida. Não esquece de dar descarga.', 'Ficou 40 minutos. Tempo no banheiro não conta como produtividade.']) : 'Abre a tampa antes, mano.'), (id) => { if (!lidOpen) { toast('Abre a tampa antes, mano.'); return true } toast(`Descarga! Adeus, ${ITEMS[id].name}. 🌊`); return 'consume' })
   const flush = () => { flushT = 2.6; toast(pick(['*SHHHHHHH* 🌊', 'Descarga dada. A caixa leva 2 min pra encher.', 'O ralo do Smoll agradece.'])) }
@@ -395,6 +399,7 @@ export function buildProps(scene: THREE.Scene) {
   }
   const tapHit = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })); tapHit.position.set(10.84, 1.0, 12.6); scene.add(tapHit) // área de clique maior que a torneira fina
   for (const o of [tap, spout, tapHit]) act(o, () => (tapOn ? 'Fechar a torneira' : 'Abrir a torneira'), tapFn)
+  share('torneira', () => tapOn, (v) => { tapOn = v; flow.visible = !!v })
   block(10.45, 12.25, 11, 12.95, 0.86)
   const mir = new Reflector(new THREE.PlaneGeometry(0.55, 0.8), { textureWidth: 512, textureHeight: 512, color: 0xd6e6ec, clipBias: 0.003 })
   mir.position.set(10.985, 1.3, 12.6); mir.rotation.y = -Math.PI / 2; scene.add(mir); mirrorR = mir
@@ -443,6 +448,7 @@ export function buildProps(scene: THREE.Scene) {
   act(glass, () => (shower ? 'Desligar o chuveiro' : 'Ligar o chuveiro'), toggleShower)
   const knob = cyl(0.045, 0.05, 0xd0d0d0, 10.0, 1.1, 14.95); knob.rotation.x = Math.PI / 2; knob.position.z = 14.96 // registro na altura da mão
   act(knob, () => (shower ? 'Fechar o registro' : 'Abrir o registro'), toggleShower)
+  share('chuveiro', () => !!shower, (v) => world.chuveiro(v))
   const towel = box(0.5, 0.9, 0.03, 0x2a5db0, 7.7, 1.0, 14.95); act(towel, 'Pegar a toalha', () => toast(pick(['Toalha ainda úmida do último banho. Fazer o quê.', 'Cheira a sabão em pó e a promessa de lavar.'])))
 
   // ---------- QUARTO (x 12–19, z 9–13) ----------
@@ -467,6 +473,7 @@ export function buildProps(scene: THREE.Scene) {
   const lamp = light(0xffc880, 3, 5, 12.4, 0.95, 11.7)
   energy.abajurOff = () => { lamp.intensity = 0; (shade.material as THREE.MeshBasicMaterial).color.set(0x8a6a4a) } // disjuntor desligado apaga o abajur também
   act(shade, () => (lamp.intensity ? 'Apagar abajur' : 'Acender abajur'), () => { lamp.intensity = lamp.intensity ? 0 : 3; (shade.material as THREE.MeshBasicMaterial).color.set(lamp.intensity ? 0xffe2a8 : 0x6b5e4a) })
+  share('abajur', () => lamp.intensity > 0, (v) => { lamp.intensity = v ? 3 : 0; (shade.material as THREE.MeshBasicMaterial).color.set(v ? 0xffe2a8 : 0x6b5e4a) })
   block(12, 11.27, 12.55, 11.75, 0.5)
   // guarda-roupa (parede sul)
   cabinet(16.5, 0, 14.7, 2.0, 2.1, 0.6, -1, 0x7a5a3a, ['Só moletom preto. Todos iguais.', 'Achou uma camiseta do tempo da faculdade.', 'Uma meia sozinha. Como sempre.', 'Tem coisa aqui que o Smoll não explicou…'])
@@ -534,6 +541,7 @@ export function buildProps(scene: THREE.Scene) {
   tv.sync = () => { tvPlane.material = tv.on ? tv.hole : tvOff; tvLight.intensity = tv.on ? 2.5 : 0 }
   world.tv = () => { if (state.tvBlocked) { toast('A TV está bloqueada no roteador. 🚫'); return } tv.setOn(!tv.on); tvPlane.material = tv.on ? tv.hole : tvOff; tvLight.intensity = tv.on ? 2.5 : 0; if (tv.on) { tv.muted = true; tv.unmute() } }
   for (const o of [tvBody, tvPlane]) act(o, () => (!tv.on ? 'Ligar TV' : tv.muted ? 'Ligar o som da TV' : 'Desligar TV'), tvToggle)
+  share('tv', () => !!tv.on, (v) => { if (!!tv.on !== v) { tv.setOn(v); tv.sync(); if (v) { tv.muted = true; tv.unmute() } } })
   // controle remoto: pega (vai pra mochila), dá pra soltar (Q) ou arremessar (G); com ele na mão o clique esquerdo abre o controle da TV de até 10 m
   thing(12.62, 0.45, 5.72, 'Pegar o controle da TV', ['Controle da TV. As pilhas são de marcas diferentes, claro.', 'Achou o controle! Alguém vai ficar feliz.'], (g) => { box(0.06, 0.025, 0.2, 0x1a1a1a, 0, 0, 0, g); for (let i = 0; i < 4; i++) box(0.02, 0.006, 0.02, [0xc0182c, 0x2e9a3c, 0xe0c030, 0x2e86de][i], -0.015 + (i % 2) * 0.03, 0.025, -0.05 + Math.floor(i / 2) * 0.04, g) }, false)
   { const rid = defineItem('Controle da TV'); ITEMS[rid].use = () => { if (Math.hypot(playerPos.x - 11.95, playerPos.z - 5.7) > 10) { toast('Muito longe da TV. O sinal do controle não chega.'); return } if (state.tvBlocked) { toast('A TV está bloqueada no roteador.'); return } openRemote() } }
@@ -911,6 +919,7 @@ export function buildProps(scene: THREE.Scene) {
   const dm = box(0.06, 2.1, 0.94, 0x6b3a1e, 0, 0, 0.47, door)
   box(0.05, 0.05, 0.05, 0xc9b037, -0.05, 1.0, 0.85, door)
   act(dm, () => (state.doorOpen ? 'Fechar porta' : 'Abrir porta'), () => (state.doorOpen = !state.doorOpen))
+  share('door', () => state.doorOpen, (v) => (state.doorOpen = v)); share('power', () => state.power, (v) => (state.power = v)); share('internet', () => state.internet, (v) => (state.internet = v)); share('tvblock', () => state.tvBlocked, (v) => (state.tvBlocked = v))
 
   // ---------- BAIRRO (planta em bairro.ts, a partir da foto de satélite): ruas, casas dos vizinhos, escola, postes ----------
   const ASPH = 0x8d8c86, WALK = 0xb8b8b0, CURB = 0xc9c6bc
@@ -1135,7 +1144,7 @@ export function buildProps(scene: THREE.Scene) {
     }
     f.userData.on = true
     act(f, () => (f.userData.on ? 'Desligar ventilador' : 'Ligar ventilador'), () => (f.userData.on = !f.userData.on))
-    fans.push(f)
+    share('fan' + fans.length, () => !!f.userData.on, (v) => (f.userData.on = v)); fans.push(f)
   }
 
   // ---------- CALÇADA DO SMOLL: campainha, lixeira, cachorro, cadeira, picolé… ----------
@@ -1418,6 +1427,7 @@ export function buildProps(scene: THREE.Scene) {
   const blades = new THREE.Group(); blades.position.set(-0.12, 0.85, 0); vf.add(blades); for (let i = 0; i < 4; i++) { const arm = new THREE.Group(); arm.rotation.x = (i * Math.PI) / 2; blades.add(arm); box(0.015, 0.15, 0.06, 0x9fd0e8, 0, 0.09, 0, arm) }
   box(0.01, 0.44, 0.44, 0xaaaaaa, -0.2, 0.63, -0.22, vf).visible = false
   const vfan = { broken: true, on: false }
+  share('vfan', () => vfan.on, (v) => (vfan.on = v)); share('vfanok', () => vfan.broken, (v) => (vfan.broken = v))
   ticks.push((dt) => { if (vfan.on && state.power && !vfan.broken) blades.rotation.x += dt * 20 })
   act(vf, () => (vfan.broken ? 'Ventilador de mesa (quebrado)' : vfan.on ? 'Desligar o ventilador' : 'Ligar o ventilador'), () => {
     if (vfan.broken) { toast(pick(['Não liga. Tem um parafuso solto na base. (Pega a chave de fenda e clica nele.)', 'Quebrado. O Smoll diz que "é só apertar um parafuso".'])); return }
@@ -1526,6 +1536,7 @@ export function buildProps(scene: THREE.Scene) {
   for (const o of [disco, caixaSom]) act(o, () => (musicTrack() < 0 ? 'Ligar a vitrola' : `Trocar a música (tocando: ${TRACKS[musicTrack()].name})`), () => {
     if (!hasPower()) return; const n = musicTrack() + 1 > 2 ? -1 : musicTrack() + 1; musicPlay(n); toast(n < 0 ? 'Desligou a vitrola. Silêncio de biblioteca.' : `🎵 Tocando: ${TRACKS[n].name}`)
   })
+  share('musica', () => musicTrack(), (n) => musicPlay(n))
   ticks.push((dt) => {
     if (musicTrack() < 0) return
     if (!state.power) { musicStop(); return }
@@ -1536,6 +1547,7 @@ export function buildProps(scene: THREE.Scene) {
   const cortinas = [-1, 1].map((sx) => { const g = new THREE.Group(); g.position.set(10.5 + sx * 0.8, 1.0, 1.08); scene.add(g); box(0.8, 1.35, 0.03, 0xb03a4a, -sx * 0.4, 0, 0, g); return g })
   box(1.9, 0.03, 0.03, 0x5a3a22, 10.5, 2.35, 1.08)
   let cortAberta = false; ticks.push((dt) => cortinas.forEach((c) => (c.scale.x += ((cortAberta ? 0.25 : 1) - c.scale.x) * Math.min(1, dt * 4))))
+  share('cortina', () => cortAberta, (v) => (cortAberta = v))
   for (const c of cortinas) act(c, () => (cortAberta ? 'Fechar a cortina' : 'Abrir a cortina'), () => { cortAberta = !cortAberta; toast(cortAberta ? 'Abriu a cortina. A luz do sol entrou e a TV ficou ruim de ver.' : 'Fechou a cortina. Modo caverna.') })
   // quadro de fotos
   const FOTOS = ['Smoll e a moto, 2014. Os dois novinhos.', 'O caramelo filhote. Já era medroso.', 'Aniversário do Smoll: 1 vela, 0 amigos, 1 bolo.']
@@ -1823,6 +1835,7 @@ export function buildProps(scene: THREE.Scene) {
     const rname = ROOMS[roomIdx++]
     world.luz[rname] = () => { if (!state.power || breakerOff.has(rname)) return; on = !on; lamps.forEach((l) => l.set(on)) }
     if (fan) world.ventilador[rname] = () => { if (state.power && !breakerOff.has(rname)) fan.userData.on = !fan.userData.on }
+    share('luz.' + rname, () => on, (v) => { on = v; lamps.forEach((l) => l.set(v)) })
     energy.rooms.push({ on: () => on, w: 60 * lamps.length, off: () => { on = false; lamps.forEach((l) => l.set(false)) } })
     const noPower = () => { if (state.power && !breakerOff.has(rname)) return false; toast(state.power ? 'Sem energia aqui. O disjuntor deste cômodo está desarmado (quadro do corredor).' : 'Sem energia. Alguém desligou o disjuntor.'); return true }
     for (const [px, pz, nx, nz] of places) {

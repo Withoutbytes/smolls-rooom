@@ -8,7 +8,7 @@ import { state, toast, world, deskMissing } from './state'
 import { strum } from './sfx'
 import { tv } from './tv'
 import { RED_SKEL, SHORTS_SKEL, buildRig, redPose } from './rig'
-import { createAnim, type Clip, type BedPose, BED_POSES } from './smollAnim'
+import { createAnim, type Clip, type BedPose, BED_POSES, CLIP_DUR } from './smollAnim'
 
 // Smoll 3D de primitivas: cadeira gamer + ele sentado + mesa com 2 monitores. Frente do grupo = +x (virado pra parede leste).
 const CX = 17.9, CZ = 13
@@ -80,6 +80,8 @@ export function buildSmoll(scene: THREE.Scene) {
 ;(window as any).__smoll = M // debug: posição do Smoll
   let anim: ReturnType<typeof createAnim> | null = null
   let yawM = 0, chairYaw = 0, sitAmt = 0
+  let outfitSync: (() => void) | null = null // reaplica a roupa (modo marionete: o anfitrião trocou)
+  let wasPuppet = false, appliedN = -1
   let routeOut: ((to: string) => [number, number][]) | null = null // caminho do Smoll (definido quando o modelo carrega, usado no update)
   let idleTrip = 60 + Math.random() * 60                                                // próxima saída espontânea (s)
   let trips: { restock: (e: (typeof deskMissing)[number]) => boolean; start: (n: string) => boolean } | null = null
@@ -124,6 +126,7 @@ export function buildSmoll(scene: THREE.Scene) {
       const o = c === 'jeans' ? null : outfits[c]; ;(o ? o.rig : rig).bones[10].add(mug)
       shorts.value = c === 'shorts' && !outfits.shorts ? 1 : 0
     }
+    outfitSync = showOutfit
     for (const [k, file] of [['shorts', 'smoll_bermuda_hq'], ['red', 'smoll_skin_red_hq']] as const) new GLTFLoader().load(`/models/${file}.glb`, (g2) => {
       let s2: THREE.Mesh | undefined
       g2.scene.traverse((o) => { if (!s2 && (o as THREE.Mesh).isMesh) s2 = o as THREE.Mesh })
@@ -221,6 +224,7 @@ export function buildSmoll(scene: THREE.Scene) {
     }
     trips = { restock, start: startTask }
     state.cmd = (c) => {
+      if (!state.smollHost && state.smollRemote) { state.smollCmd(c); return true } // não sou o anfitrião: o pedido vai pra quem roda o Smoll
       if (c.startsWith('pose:')) { // poses na cama: deitado, pernas abertas, pernas pra cima, tesoura, ponte, fetal
         const p = c.slice(5) as BedPose
         if (!BED_POSES.includes(p)) return false
@@ -235,6 +239,7 @@ export function buildSmoll(scene: THREE.Scene) {
       if (mode !== 'desk') return false // ocupado (andando ou dormindo)
       if (c === 'stand') return anim!.toggleStand()
       if (c === 'sit') return anim!.stand(false)
+      if (!(c in CLIP_DUR)) return false // comando desconhecido (também vem da rede)
       anim!.play(c as Clip)
     }
   }, undefined, () => console.warn('smoll_real_hq.glb não carregou, ficando com o Smoll de primitivas'))
@@ -248,7 +253,18 @@ export function buildSmoll(scene: THREE.Scene) {
         let walk = 0, lying = false
         const tx = px - MX, tz = pz - CZ, dist = Math.hypot(tx, tz)
         const toPlayer = Math.atan2(-tz, tx)
-        if (mode === 'desk') {
+        const remote = !state.smollHost ? state.smollRemote : null // marionete: desenha o Smoll do anfitrião em vez de rodar a IA
+        if (!remote && wasPuppet) { wasPuppet = false; anim.puppet = false; mode = 'desk'; task = null; wp = []; modeT = 0; anim.loco.bed = null } // virei anfitrião: recomeço do PC
+        if (remote) {
+          const r = remote, k = Math.min(1, dt * 12)
+          if (!wasPuppet) { wasPuppet = true; anim.puppet = true; M.position.set(r.x, r.y, r.z); yawM = r.ry; appliedN = r.cn }
+          M.position.x += (r.x - M.position.x) * k; M.position.y += (r.y - M.position.y) * k; M.position.z += (r.z - M.position.z) * k
+          yawM += wrap(r.ry - yawM) * k; M.rotation.set(0, yawM, r.rz)
+          mode = r.mode; walk = r.w; lying = !!r.ly; anim.loco.bed = r.bd; anim.loco.pose = r.bp
+          if (!!r.st !== anim.standing) anim.stand(!!r.st)
+          if (r.cn !== appliedN) { appliedN = r.cn; if (r.c) anim.play(r.c) }
+          if (state.smollRed !== !!r.red || state.smollShorts !== !!r.sh) { state.smollRed = !!r.red; state.smollShorts = !!r.sh; outfitSync?.() }
+        } else if (mode === 'desk') {
           if (trips && !dialog.open && !state.editing) { // rotina: repõe a mesa quando falta bebida e, de vez em quando, sai do quarto
             const tn = performance.now() / 1000, miss = deskMissing.find((e) => e.kind !== 'other' && tn - e.at > 10)
             if (miss && trips.restock(miss)) deskMissing.splice(deskMissing.indexOf(miss), 1)
@@ -310,6 +326,10 @@ export function buildSmoll(scene: THREE.Scene) {
         anim.loco.walk = walk; anim.loco.lying = lying
         anim.update(dt, now, look, dist < 5 && mode === 'desk', dist, Math.atan2((anim.standing ? 1.6 : 1.37) - (state.py + state.eye), Math.max(dist, 0.5))) // pitch: cabeça do Smoll vs olhos do jogador
         state.smollStanding = anim.standing
+        if (!remote) { // anfitrião: publica o estado pra os outros desenharem
+          const q = (n: number) => Math.round(n * 1000) / 1000, b = anim.loco.bed
+          state.smollOut = { x: q(M.position.x), y: q(M.position.y), z: q(M.position.z), ry: q(M.rotation.y), rz: q(M.rotation.z), w: walk, ly: lying ? 1 : 0, st: anim.standing ? 1 : 0, red: state.smollRed ? 1 : 0, sh: state.smollShorts ? 1 : 0, bd: b ? { sit: q(b.sit), lie: q(b.lie) } : null, bp: anim.loco.pose, c: anim.played.c, cn: anim.played.n, mode }
+        }
         // cadeira acompanha o giro enquanto ele está sentado e recua quando ele levanta
         sitAmt += ((anim.standing ? 1 : 0) - sitAmt) * Math.min(1, dt * 2.5)
         if (sitAmt < 0.5) chairYaw = yawM

@@ -26,6 +26,10 @@ export const state = {
   editing: false,   // editor de código aberto: o jogo ignora o teclado
   cmd: (_c: string): unknown => undefined,   // smoll.ts liga: stand/sit/sip/wave/laugh/point/think/shrug/facepalm/stretch/dance/thumbs/scratch
   tp: (_x: number, _z: number) => {},
+  smollHost: true,                  // este cliente roda a IA do Smoll (o jogador mais antigo na sala; sem servidor, sempre true)
+  smollRemote: null as null | Record<string, any>, // estado do Smoll vindo do anfitrião (os outros clientes só o desenham)
+  smollOut: null as null | Record<string, unknown>, // estado do Smoll que o anfitrião manda
+  smollCmd: (_c: string) => {},     // pedido pro Smoll quando não sou o anfitrião: vai pelo servidor
   driving: false,   // dentro de um veículo
   enter: (_v: Vehicle) => {},  // main.ts liga isto: entra no veículo  // main.ts liga isto ao jogador
 }
@@ -34,6 +38,9 @@ export const state = {
 const prod = location.protocol === 'https:'
 export const HTTP_BASE = prod ? location.origin : `http://${location.hostname}:8080`
 export const WS_URL = prod ? `wss://${location.host}/ws` : `ws://${location.hostname}:8080`
+// estado do mundo compartilhado (portas, luzes, TV…): cada coisa se registra com como ler e como aplicar o valor; net.ts vigia mudanças locais e aplica as dos outros
+export const shared = new Map<string, { get: () => boolean | number | string; set: (v: any) => void; last: unknown }>()
+export const share = <T extends boolean | number | string>(key: string, get: () => T, set: (v: T) => void) => { shared.set(key, { get, set, last: get() }) }
 export const DAY_MS = 20 * 60 * 1000
 export const clock = { h: 8, at: performance.now() }
 export const gameHour = () => (clock.h + ((performance.now() - clock.at) / DAY_MS) * 24) % 24

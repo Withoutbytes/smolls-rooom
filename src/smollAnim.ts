@@ -161,10 +161,13 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
   mug.visible = false
   const api = {
     /** controlado pelo smoll.ts: andando até a cama/PC ou deitado. pose = a pose na cama */
+    puppet: false, // true = só desenha o que o anfitrião manda: sem gestos aleatórios nem sentar sozinho
+    played: { n: 0, c: '' as Clip | '' }, // contador de gestos (vai pros outros jogadores)
     loco: { walk: 0, lying: false, pose: 'normal' as BedPose, bed: null as null | { sit: number; lie: number } },
     get standing() { return standing },
     stand(on: boolean) { standing = on; clip = null },
     play(c: Clip) {
+      api.played.n++; api.played.c = c
       if (NEEDS_STAND.includes(c) && !standing) { standing = true; pending = c; pendingAt = 1.2; return }
       clip = c; clipT = 0
     },
@@ -175,10 +178,10 @@ export function createAnim(rig: Rig, mug: THREE.Object3D) {
       if (clip && (clipT += dt) > DUR[clip]) clip = null
       // levanta/senta sozinho: se ficar em pé e o jogador sumir, ele volta pro PC
       const busy = api.loco.lying || !!api.loco.bed || api.loco.walk > 0.02
-      away = standing && dist > 6 && !busy ? away + dt : 0
+      away = !api.puppet && standing && dist > 6 && !busy ? away + dt : 0
       if (away > 6) { standing = false; away = 0 }
       // gestos aleatórios enquanto ninguém está falando com ele
-      if (!busy && !clip && !pending && !standing && (idleT -= dt) <= 0) {
+      if (!api.puppet && !busy && !clip && !pending && !standing && (idleT -= dt) <= 0) {
         idleT = 7 + Math.random() * 8
         api.play((['sip', 'think', 'stretch', 'scratch'] as Clip[])[Math.floor(Math.random() * 4)])
       }
