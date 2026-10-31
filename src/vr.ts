@@ -22,6 +22,16 @@ const wrap = (g: CanvasRenderingContext2D, text: string, maxW: number) => {
 }
 const fit = (g: CanvasRenderingContext2D, t: string, maxW: number) => { while (t.length > 1 && g.measureText(t).width > maxW) t = t.slice(0, -2) + '…'; return t }
 
+// log visível dentro do headset (o console não aparece lá): erros e eventos de VR, últimas 6 linhas
+const lines: string[] = []
+let logDirty = false
+export function vrLog(...a: unknown[]) {
+  const m = a.map((x) => (x instanceof Error ? `${x.message} @ ${(x.stack ?? '').split('\n')[1]?.trim() ?? ''}` : String(x))).join(' ')
+  console.log('[vr]', m); lines.push(m.slice(0, 110)); if (lines.length > 6) lines.shift(); logDirty = true
+}
+addEventListener('error', (e) => vrLog('ERRO', e.message, `${e.filename?.split('/').pop()}:${e.lineno}`))
+addEventListener('unhandledrejection', (e) => vrLog('PROMESSA', (e.reason as Error)?.message ?? e.reason))
+
 export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, rig: THREE.Object3D) {
   const ctl = [0, 1].map((i) => {
     const c = renderer.xr.getController(i); rig.add(c)
@@ -38,6 +48,19 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
 
   // dica da mira + aviso: um plano preso na frente do olhar
   const hud = canvasPlane(512, 96, 0.64, 0.12); hud.mesh.position.set(0, -0.27, -0.8); noRay(hud.mesh); camera.add(hud.mesh)
+  const logP = canvasPlane(1024, 200, 1.2, 0.234); logP.mesh.position.set(0, 0.22, -1); noRay(logP.mesh); camera.add(logP.mesh); logP.mesh.visible = false
+  const drawLog = () => {
+    if (!logDirty) return; logDirty = false
+    const g = logP.g; g.clearRect(0, 0, 1024, 200); g.fillStyle = '#000c'; g.fillRect(0, 0, 1024, 200)
+    g.font = '24px monospace'; g.textBaseline = 'top'; g.fillStyle = '#7f7'
+    lines.forEach((l, i) => { g.fillStyle = /ERRO|PROMESSA|FALHA/.test(l) ? '#f77' : '#7f7'; g.fillText(l, 10, 8 + i * 30) })
+    logP.tex.needsUpdate = true; logP.mesh.visible = true
+  }
+  renderer.xr.addEventListener('sessionstart', () => {
+    const s = renderer.xr.getSession()!
+    vrLog('sessão VR iniciada', s.environmentBlendMode)
+    s.addEventListener('inputsourceschange', (e) => vrLog('controles:', [...s.inputSources].map((x) => x.handedness).join(',') || 'nenhum', `(+${e.added.length} -${e.removed.length})`))
+  })
   let hudTxt = ''
   const drawHud = () => {
     const tip = document.getElementById('tip')!, toast = document.getElementById('toast')!
@@ -114,9 +137,10 @@ export function initVR(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
         if (bb && !s.b && !dialog.open) cycleSlot(-1)
         s.grip = grip; s.a = a; s.b = bb
       })
-      drawHud()
+      drawHud(); drawLog()
       return [fwd, side, turn]
     },
+    drawLog,
     end() { attachHeld(null); held = -1; panel.mesh.visible = false },
   }
 }

@@ -15,7 +15,7 @@ import { tv, cssR } from './tv'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { initFx } from './fx'
 import { pbr, FLOOR_TEX } from './tex'
-import { initVR } from './vr'
+import { initVR, vrLog } from './vr'
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js'
 
 const H = 2.6
@@ -333,7 +333,9 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.05) * ((window as any).__fast ?? 1); last = now
   const lock = dialog.open || drv || mapMode || state.seat ? 0 : 1
   const xr = renderer.xr.isPresenting
-  const [xf, xs, xt] = xr ? vr.update() : [0, 0, 0]
+  let [xf, xs, xt] = [0, 0, 0]
+  if (xr) try { [xf, xs, xt] = vr.update() } catch (e) { vrLog('FALHA vr.update', e) }
+  if (xr) vr.drawLog()
   xrTurn += xt
   if (xr) { p.yaw = xrTurn + camera.rotation.y; p.pitch = 0 } // anda na direção em que a cabeça olha
   const f = lock * (+keys.has('KeyW') - +keys.has('KeyS') + xf), s = lock * (+keys.has('KeyD') - +keys.has('KeyA') + xs)
@@ -380,7 +382,7 @@ renderer.setAnimationLoop((now) => {
   props.update(dt, p.x, p.z, mapMode)
   net.update(dt, p)
   tickHold() // VR não manda keyup: resolve o "segurar E" pelo tempo
-  if (!mapMode) updateInteract(scene, camera, xr ? vr.pointer() : undefined)
+  if (!mapMode) try { updateInteract(scene, camera, xr ? vr.pointer() : undefined) } catch (e) { vrLog('FALHA interact', e) }
   smoll.update(dt, now / 1000, p.x, p.z)
   if (mapMode) {
     marker.position.x = p.x; marker.position.z = p.z; marker.rotation.y = p.yaw; marker.scale.setScalar(Math.max(1, mapZoom))
@@ -404,7 +406,7 @@ renderer.setAnimationLoop((now) => {
   if ((cullT -= dt) < 0) { cullT = 0.5; cull(p.x, p.z, mapMode) }
   if ((frame++ & 1) === 0) renderer.shadowMap.needsUpdate = true
   if ((fpsT += (now - fpsLast) / 1000, fpsLast = now, ++fpsN, fpsT >= 0.5)) { fpsEl.textContent = `${Math.round(fpsN / fpsT)} fps · fx ${fx ? (fx.on ? 'on' : 'off') : 'x'} (F2) · ao ${fx?.ao ? 'on' : 'off'} (F3)`; fpsN = fpsT = 0 }
-  if (fx?.on && !mapMode && !xr) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera)
+  try { if (fx?.on && !mapMode && !xr) fx.render(now); else renderer.render(scene, mapMode ? mapCam : camera) } catch (e) { vrLog('FALHA render', e) }
   if (state.photoReq) { const f = state.photoReq; state.photoReq = null; f(renderer.domElement.toDataURL('image/jpeg', 0.75)) } // foto do celular
   if (!mapMode) tv.render(camera)
 })
