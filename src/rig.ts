@@ -214,6 +214,10 @@ const narrow = (sp: SkelSpec, ka: number, kl: number, name: string): SkelSpec =>
   return { ...sp, name, JL, hand: [sp.hand[0] * ka, sp.hand[1] * ka, ...sp.hand.slice(2)] as SkelSpec['hand'] }
 }
 const RED0 = narrow(SMOLL_SKEL, 0.78, 0.82, 'smoll-red')
+// A zona da mão NÃO pode encolher junto: medida na malha, a mão dela está em x 0,27-0,40 (a mesma
+// do moletom). Com a zona em 0,19 o que caía dentro era a coxa — e a coxa inteira virava braço,
+// esticando a pele da mão até o joelho quando ele mexia o braço.
+RED0.hand = [0.26, 0.29, SMOLL_SKEL.hand[2], SMOLL_SKEL.hand[3], SMOLL_SKEL.hand[4], SMOLL_SKEL.hand[5]]
 // virilha dessa malha fica em y ≈ -0,42 (no moletom, -0,28): o quadril desce pra coxa dobrar na dobra da perna, e não no joelho
 const RED_HP = -0.26 // altura do encaixe da coxa (moletom: -0,20): quanto mais baixo, mais curta a coxa dobrada e mais "em pé" ele parece sentado
 export const RED_SKEL: SkelSpec = { ...RED0, cloth: (r, g, b) => r > 100 && r > g * 1.9 && r > b * 1.9, JL: { ...RED0.JL, hp: [RED0.JL.hp[0], RED_HP, RED0.JL.hp[2]] } }

@@ -116,13 +116,13 @@ const BED: Record<BedPose, Pose> = {
   // O roll π gira o TRONCO (barriga pra baixo), mas a direção dos membros é absoluta: mão e joelho
   // continuam apontando pra BAIXO (W com y negativo).
   quatro: bedOf({
-    rz: -0.36, ptilt: 0.30, lean: -0.10, arch: 0.10, hp: -0.42,
+    rz: -0.20, ptilt: 0.30, lean: -0.10, arch: 0.10, hp: -0.42,
     // coxa a 45° (a 0,28 m de altura o joelho cai EXATO no colchão; a 97% ele afundava 11 cm)
     TL: Q(0.42, -0.90, -0.07), SL: Q(0.97, 0.02, -0.04), FL: Q(0.88, 0.06, 0.0),
     TR: Q(0.42, -0.90, 0.07), SR: Q(0.97, 0.02, 0.04), FR: Q(0.88, 0.06, 0.0),
-    // braços abertos na altura do travesseiro, cotovelo cedendo: as mãos encostam no colchão
-    L: limb(Q(-0.90, 0.18, -0.26), Q(-0.74, -0.30, -0.30), Q(-0.76, -0.28, -0.28)),
-    R: limb(Q(-0.90, 0.18, 0.26), Q(-0.74, -0.30, 0.30), Q(-0.76, -0.28, 0.28)),
+    // braços descendo retos do ombro até o colchão, mão espalmada apontando pra cabeceira
+    L: limb(Q(-0.80, -0.60, 0.14), Q(0.80, -0.60, 0.06), Q(-0.90, -0.10, 0.05)),
+    R: limb(Q(-0.80, -0.60, -0.14), Q(0.80, -0.60, -0.06), Q(-0.90, -0.10, -0.05)),
   }),
   // fetal de verdade: corpo DE LADO (roll π/2 = lado esquerdo pra baixo), joelhos na direção do peito,
   // braço de baixo esticado sob a cabeça e o de cima abraçando a perna

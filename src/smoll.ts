@@ -20,6 +20,31 @@ let bedSfxT = 2.5, cobertaK = 0, lastBedPose = ''
 // rolagem do corpo em torno do próprio eixo (pose "de bruços"): vai no GRUPO pra ser rígida.
 // Girar a bacia em π esticava braços e pernas (a junta muda de lado, o vértice não).
 let bedRollK = 0
+// A malha afunda no colchão em algumas poses (a "de quatro" ia 29 cm pra dentro). Em vez de acertar
+// cada pose na mão, medimos o vértice mais baixo da malha e assentamos o grupo nele — vale pra
+// qualquer pose nova e pra qualquer roupa.
+// estado por instância (há mais de um Smoll na cena): y assentado, pose medida e frames restantes
+const LIFTS = new WeakMap<THREE.Object3D, { y: number; pose: string; frames: number; last: number }>()
+function liftFor(g: THREE.Object3D) {
+  let o = LIFTS.get(g)
+  if (!o) { o = { y: 0.83, pose: '', frames: 0, last: -1e9 }; LIFTS.set(g, o) }
+  return o
+}
+const LOW_V = new THREE.Vector3()
+function lowestY(root: THREE.Object3D): number {
+  root.updateMatrixWorld(true)
+  let min = 1e9
+  root.traverse((o) => {
+    const m = o as THREE.SkinnedMesh
+    if (!m.isSkinnedMesh || !m.applyBoneTransform) return
+    const pos = m.geometry.attributes.position
+    for (let i = 0; i < pos.count; i += 7) {
+      LOW_V.fromBufferAttribute(pos as THREE.BufferAttribute, i); m.applyBoneTransform(i, LOW_V); LOW_V.applyMatrix4(m.matrixWorld)
+      if (LOW_V.y < min) min = LOW_V.y
+    }
+  })
+  return min
+}
 const ROLL_AX = new THREE.Vector3(1, 0, 0), ROLL_Q = new THREE.Quaternion()
 const lm = (c: number) => new THREE.MeshLambertMaterial({ color: c })
 
@@ -373,12 +398,23 @@ export function buildSmoll(scene: THREE.Scene) {
             const th = ang * Math.PI / 2, yp = 0.75 + 0.02 * sit * (1 - ang)                  // altura da bacia no corpo
             const pxw = lie < 0.45 ? 14.32 - 0.2 * sm2(lie / 0.45) : 14.12 - 0.72 * sm2((lie - 0.45) / 0.55), pyw = LY_Y + 0.06 * Math.sin(Math.PI * lie) // bacia no mundo (sobe um pouco no meio: a perna passa por cima da quina)
             M.rotation.set(0, yawM, th)
-            if (sit < 1) M.position.set(px, 0.07 * sit, 13); else M.position.set(pxw + Math.sin(th) * yp, pyw - Math.cos(th) * yp, 13)
+            if (sit < 1) M.position.set(px, 0.07 * sit, 13); else M.position.set(pxw + Math.sin(th) * yp, pyw - Math.cos(th) * yp + (liftFor(M).y - LY_Y) * ang, 13)
             anim.loco.bed = { sit, lie: ang }; lying = false
             if (mode === 'falling' && modeT > 6.2) { mode = 'sleep'; anim.loco.bed = null }
             if (mode === 'rise' && modeT > 6.2) { mode = 'toDesk'; anim.loco.bed = null; wp = [[17.5, 12.2], [17.95, 13]]; yawM = 0; M.rotation.set(0, 0, 0); M.position.set(14.85, 0, 13) }
           } else if (anim.loco.pose === 'edge') { anim.loco.bed = null; M.rotation.set(0, 0, 0); M.position.set(14.32, 0.07, 13) } // sentado na quina
-          else { lying = true; anim.loco.bed = null; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, LY_Y, 13) } // dormindo
+          else { lying = true; anim.loco.bed = null; M.rotation.set(0, 0, Math.PI / 2); M.position.set(14.15, liftFor(M).y, 13) } // dormindo
+          // ---- rolagem do corpo (de bruços): no GRUPO, rígida ----
+          const rollTarget = BED_ROLL[anim.loco.pose] ?? 0
+          bedRollK += (rollTarget - bedRollK) * Math.min(1, dt * 3.2)
+          if (bedRollK > 0.001) M.quaternion.premultiply(ROLL_Q.setFromAxisAngle(ROLL_AX, bedRollK))
+          // ---- assenta a malha no colchão: algumas poses afundavam (a "de quatro", 29 cm) ----
+          // a pose só é aplicada no anim.update() abaixo: aqui só marca, mede lá embaixo
+          // mede por ~0,8 s: a pose entra em crossfade, então uma medida só pegaria o meio da transição
+          const LF = liftFor(M)
+          // mexe no rig: só re-mede quando a pose muda, e no máximo a cada 2 s
+          const kBed = anim.loco.pose + (mode === 'sleep' ? ':s' : ':f')
+          if (LF.pose !== kBed && now - LF.last > 2) { LF.pose = kBed; LF.frames = 45; LF.last = now }
         }
         zzS.visible = mode === 'sleep'
         if (zzS.visible) zzS.position.set(13.3, 1.25 + 0.12 * Math.sin(now * 1.5), 13)
@@ -418,6 +454,9 @@ export function buildSmoll(scene: THREE.Scene) {
         if (bd && state.smollPose !== lastBedPose) { lastBedPose = state.smollPose; if (dist < 8) sheet(0.06 * Math.max(0, 1 - dist / 8)) }
         smollTalk(dt, dist)
         anim.update(dt, now, look, dist < 5 && (mode === 'desk' || bd), dist, Math.atan2((anim.standing ? 1.6 : 1.37) - (state.py + state.eye), Math.max(dist, 0.5))) // pitch: cabeça do Smoll vs olhos do jogador
+        // mede DEPOIS de aplicar a pose: assenta a malha no colchão (uma pose nova pode afundar)
+        const LF2 = liftFor(M)
+        if (LF2.frames > 0) { LF2.frames--; if (LF2.frames % 3 === 0) { const low = lowestY(M) - M.position.y; LF2.y = Math.max(LY_Y - 0.25, Math.min(LY_Y + 0.45, 0.664 - low)) } }
         state.smollStanding = anim.standing
         if (!remote) { // anfitrião: publica o estado pra os outros desenharem
           const q = (n: number) => Math.round(n * 1000) / 1000, b = anim.loco.bed
