@@ -52,6 +52,9 @@ export const roofHeight = (x: number, z: number): number => {
 }
 const H = 2.6
 
+// objeto que some quando alguém pega e volta depois: a visibilidade vale pra todos os jogadores (a chave é a ordem de criação, igual em todos os clientes)
+let pkN = 0
+const shareVis = (o: THREE.Object3D) => share('pk.' + pkN++, () => o.visible, (v) => (o.visible = v))
 export function buildProps(scene: THREE.Scene) {
   const roofs: THREE.Object3D[] = [] // somem na vista do mapa
   let mirrorR: THREE.Object3D | null = null // espelho de reflexo real: só liga perto (renderiza a cena de novo)
@@ -143,7 +146,7 @@ export function buildProps(scene: THREE.Scene) {
   })
   // item que dá pra pegar (some e volta em 20 s): build monta as peças dentro do grupo, em coordenadas locais com y = 0 na base
   const thing = (x: number, y: number, z: number, label: string, msgs: string[], build: (g: THREE.Group) => void, hold = true) => {
-    const g = new THREE.Group(); g.position.set(x, y, z); scene.add(g); build(g)
+    const g = new THREE.Group(); g.position.set(x, y, z); scene.add(g); build(g); shareVis(g)
     const id = defineItem(label.replace(/^(Pegar|Ler)( o| a| os| as| um| uma)? /, '').replace(/^./, (c) => c.toUpperCase()), build)
     act(g, label, () => { if (!giveItem(id)) return; toast(pick(msgs) + ` (+ ${ITEMS[id].name} 🎒)`); g.visible = false; setTimeout(() => (g.visible = true), hold ? 20000 : 30000) })
     return g
@@ -161,7 +164,7 @@ export function buildProps(scene: THREE.Scene) {
     for (const sy of shelves) box(D - 0.1, 0.02, W - 0.1, 0xcfe8f5, -0.02, sy, 0, g)
     const lightF = light(0xffffff, 0, 2.5, cx - 0.2, h * 0.6, cz)
     const kuat = (x: number, y: number, z: number, big = false) => { // lata ou garrafa verde de Kuat: dá pra pegar, volta depois de 15 s
-      const it = new THREE.Group(); it.position.set(x, y, z); g.add(it)
+      const it = new THREE.Group(); it.position.set(x, y, z); g.add(it); shareVis(it)
       const r = big ? 0.055 : 0.033, hh = big ? 0.3 : 0.12
       cyl(r, hh, 0x2e9a3c, 0, 0, 0, it); cyl(r + 0.002, hh * 0.35, 0xf4f1e8, 0, hh * 0.3, 0, it); cyl(r * 0.6, 0.02, 0xcccccc, 0, hh, 0, it)
       act(it, big ? 'Pegar a Kuat 2L' : 'Pegar uma Kuat', () => { if (!giveItem('kuat', big ? 2 : 1)) return; toast(`Pegou ${big ? 'a Kuat de 2 litros' : 'uma Kuat gelada'} 🥤`); it.visible = false; setTimeout(() => (it.visible = true), 15000) })
@@ -169,7 +172,7 @@ export function buildProps(scene: THREE.Scene) {
     const ball = (x: number, y: number, z: number, r: number, c: number) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), lm(c)); m.position.set(x, y + r, z); g.add(m); return m }
     const sy = (i: number) => shelves[i] + 0.02
     const stuff = (x: number, y: number, z: number, id: string, label: string, build: (g: THREE.Group) => void, parent: THREE.Object3D = g) => { // item da compra: some ao pegar e só volta quando guardam a compra
-      const it = new THREE.Group(); it.position.set(x, y, z); parent.add(it); build(it)
+      const it = new THREE.Group(); it.position.set(x, y, z); parent.add(it); build(it); shareVis(it)
       act(it, label, () => { if (!giveItem(id)) return; toast(`Pegou: ${ITEMS[id].name}. 🧊`); it.visible = false })
       it.userData.nome = ITEMS[id].name; fridgeStock.push(it); return it
     }
@@ -333,7 +336,7 @@ export function buildProps(scene: THREE.Scene) {
     const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.4, roughness: 0.35 }), dark = new THREE.MeshStandardMaterial({ color: 0x4a4e54, metalness: 0.4, roughness: 0.4 })
     const z = 1.04
     const tool = (label: string, id: () => string, msgs: string[], build: (g: THREE.Group) => void) => { // `id` é função: os itens são definidos mais abaixo
-      const g = new THREE.Group(); scene.add(g); build(g)
+      const g = new THREE.Group(); scene.add(g); build(g); shareVis(g)
       act(g, label, () => { if (!giveItem(id())) return; toast(pick(msgs) + ` (+ ${ITEMS[id()].name} 🎒)`); g.visible = false; setTimeout(() => (g.visible = true), 20000) })
     }
     tool('Pegar a chave de boca', () => idChaveBoca, ['Chave de boca 10. A que sempre some quando precisa.', 'Chave de boca. Pesada o bastante pra virar martelo.'], (g) => { box(0.04, 0.5, 0.015, steel, 3.59, 1.4, z, g); box(0.12, 0.04, 0.015, steel, 3.59, 1.9, z, g); box(0.03, 0.09, 0.015, steel, 3.545, 1.94, z, g); box(0.03, 0.09, 0.015, steel, 3.635, 1.94, z, g) })
@@ -778,7 +781,7 @@ export function buildProps(scene: THREE.Scene) {
   const pans: Record<string, Pan> = {}
   const mkPan = (id: string, x: number, z: number, rot: number, nome: string, top: number) => {
     const g = new THREE.Group(); g.position.set(x, 0.92, z); g.rotation.y = rot; scene.add(g); ITEMS[id].build!(g)
-    const p: Pan = { g, on: true, ready: '', food: own(cyl(0.075, 0.02, 0xf2d06a, 0, top, 0, g)) }; p.food.visible = false; pans[id] = p
+    const p: Pan = { g, on: true, ready: '', food: own(cyl(0.075, 0.02, 0xf2d06a, 0, top, 0, g)) }; p.food.visible = false; pans[id] = p; shareVis(g)
     act(g, () => (p.ready ? `Servir ${ITEMS[p.ready].name}` : `Pegar ${nome}${dirtyTool.has(id) ? ' (suja)' : ''}`), () => {
       if (p.ready) { if (giveItem(p.ready)) { toast(`Serviu ${ITEMS[p.ready].name}. 🍽️`); p.ready = ''; p.food.visible = false } return }
       if (cooking > 0) { toast('Tá fervendo! Espera acabar de cozinhar.'); return }
@@ -1697,6 +1700,7 @@ export function buildProps(scene: THREE.Scene) {
   // bola de futebol: E chuta na direção do olhar (vira objeto solto com física, dá pra pegar de novo)
   const idBola = item('Bola de futebol', (g) => { sph(0.11, 0xf4f4f0, 0, 0.11, 0, g); for (const [bx, by, bz] of [[0.1, 0.11, 0], [-0.1, 0.11, 0], [0, 0.21, 0], [0, 0.11, 0.1], [0, 0.11, -0.1]]) sph(0.035, 0x111111, bx, by, bz, g) }, undefined, () => toast(pick(['Quicou a bola. Toc toc toc.', 'Você fez embaixadinha: 1. (Dois, só se ninguém contar.)'])))
   const bolaProp = new THREE.Group(); bolaProp.position.set(22.8, 0, 8.7); scene.add(bolaProp); ITEMS[idBola].build!(bolaProp)
+  shareVis(bolaProp)
   act(bolaProp, 'Chutar a bola', () => { kick(idBola, new THREE.Vector3(bolaProp.position.x, 0.4, bolaProp.position.z), 7, 3.5); bolaProp.visible = false; setTimeout(() => (bolaProp.visible = true), 25000); toast(pick(['GOOOOL! (na casa do vizinho)', 'Chutou lá no alto. Vai buscar!', 'Bicuda! A bola foi longe. 🥅'])) })
   thing(21.6, 0.96, 1.2, 'Pegar a bola de futebol', ['Bola murcha, mas ainda rola.', 'Bola do Smoll, assinada por ninguém.'], ITEMS[idBola].build!)
   // ---------- QUINTAL VIVO (x 20–28, z 6–16) ----------
