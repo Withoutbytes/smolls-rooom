@@ -16,3 +16,6 @@ export function cleanSm(m) {
 export const CMD_RE = /^[\w:]{1,32}$/   // comando pro Smoll (ex.: task:tv)
 // estado compartilhado do mundo (portas, luzes, TV…): chave → número, booleano ou texto curto
 export const okShared = (k, v) => /^[\w.]{1,40}$/.test(k) && (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 40))
+// limite de mensagens por socket (token bucket): o cliente normal manda ~15/s; o que passar disso é descartado
+export const bucket = (rate = 30, burst = 60) => { let t = burst, at = Date.now(); return () => { const n = Date.now(); t = Math.min(burst, t + (n - at) * rate / 1000); at = n; return t >= 1 && (t--, true) } }
+export const MAX_PLAYERS = 50, MAX_MSG = 2048 // sala cheia = conexão recusada; mensagem maior que isso = lixo

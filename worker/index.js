@@ -1,21 +1,24 @@
 // Worker do Smoll's Room na Cloudflare: serve o site (assets), o multiplayer (/ws → Durable Object "Room", sala única) e o proxy do navegador (/proxy).
 // Equivale a server/index.js + server/proxy.js (que continuam servindo o desenvolvimento local).
-import { num, cleanSm, CMD_RE, okShared } from '../server/shared.js'
+import { num, cleanSm, CMD_RE, okShared, bucket, MAX_PLAYERS, MAX_MSG } from '../server/shared.js'
 const DAY_MS = 20 * 60 * 1000 // dia de jogo = 20 min; começa às 8h
 
 export class Room {
-  constructor() { this.players = new Map(); this.socks = new Set(); this.next = 0; this.start = Date.now(); this.timer = 0; this.conn = new Map(); this.sm = null; this.sh = new Map() }
+  constructor() { this.players = new Map(); this.socks = new Set(); this.next = 0; this.start = Date.now(); this.timer = 0; this.conn = new Map(); this.sm = null; this.sh = new Map(); this.dirty = 1; this.last = 0 }
   hostId() { return this.players.keys().next().value } // anfitrião = o jogador mais antigo na sala
   hour() { return (8 + ((Date.now() - this.start) / DAY_MS) * 24) % 24 }
   fetch(req) {
     if (req.headers.get('upgrade') !== 'websocket') return new Response('ws', { status: 426 })
+    if (this.players.size >= MAX_PLAYERS) return new Response('sala cheia', { status: 503 })
     const [client, ws] = Object.values(new WebSocketPair())
     ws.accept()
+    const ok = bucket(); this.dirty = 1
     const id = String(++this.next)
     this.players.set(id, { id, x: 15.5, z: 8.5, yaw: 0, name: 'Visitante' })
     this.socks.add(ws); this.conn.set(id, ws)
     ws.send(JSON.stringify({ t: 'hi', id, h: this.hour(), sh: Object.fromEntries(this.sh) }))
     ws.addEventListener('message', (e) => {
+      if (!ok() || String(e.data).length > MAX_MSG) return // flood: descarta
       try {
         const m = JSON.parse(e.data), p = this.players.get(id)
         if (m.cmd !== undefined) { const h = this.hostId(); if (h !== id && CMD_RE.test(m.cmd)) this.conn.get(h)?.send(JSON.stringify({ t: 'cmd', c: m.cmd })); return } // pedido pro Smoll: vai pro anfitrião
@@ -31,11 +34,14 @@ export class Room {
         p.e = ['acenar', 'aplaudir', 'dancar', 'rir', 'apontar'].includes(m.e) ? m.e : ''
         p.en = num(m.en, 0, 1e9, p.en ?? 0)
         p.c = m.c ? 1 : 0
+        this.dirty = 1
       } catch { /* mensagem inválida: ignora */ }
     })
-    const bye = () => { if (id === this.hostId()) this.sm = null; this.players.delete(id); this.socks.delete(ws); this.conn.delete(id); if (!this.socks.size) { clearInterval(this.timer); this.timer = 0; this.sh.clear() } }
+    const bye = () => { this.dirty = 1; if (id === this.hostId()) this.sm = null; this.players.delete(id); this.socks.delete(ws); this.conn.delete(id); if (!this.socks.size) { clearInterval(this.timer); this.timer = 0; this.sh.clear() } }
     ws.addEventListener('close', bye); ws.addEventListener('error', bye)
-    if (!this.timer) this.timer = setInterval(() => { // 15 Hz só enquanto houver gente na sala
+    if (!this.timer) this.timer = setInterval(() => { // 15 Hz só enquanto houver gente na sala e algo mudou (parado: 1 Hz)
+      if (!this.dirty && Date.now() - this.last < 1000) return
+      this.dirty = 0; this.last = Date.now()
       const msg = JSON.stringify({ t: 's', p: [...this.players.values()], h: this.hour(), hid: this.hostId(), sm: this.sm })
       for (const s of this.socks) try { s.send(msg) } catch { /* socket caiu */ }
     }, 66)

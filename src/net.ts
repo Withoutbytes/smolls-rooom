@@ -19,7 +19,7 @@ export function connectNet(scene: THREE.Scene) {
   const others = new Map<string, { g: THREE.Group; x: number; y: number; z: number; yaw: number; v: ReturnType<typeof createVisitor>; speed: number; parts: THREE.Object3D[]; name: string; sit?: boolean; en?: number; c?: boolean }>()
   let seenEmote = 0, selfV: ReturnType<typeof createVisitor> = null, selfG: THREE.Group | null = null, lastX = 0, lastZ = 0, selfSpeed = 0
   loadVisitorModel() // modelo realista dos visitantes; até carregar (ou se faltar o arquivo) usa o boneco simples
-  let ws: WebSocket | null = null, self = '', sendT = 0
+  let ws: WebSocket | null = null, self = '', sendT = 0, lastMsg = '', lastAt = 0
   const open = () => {
     try { ws = new WebSocket(WS_URL) } catch { return }
     ws.onmessage = (e) => {
@@ -74,7 +74,12 @@ export function connectNet(scene: THREE.Scene) {
         shT = 0
         for (const [k, s] of shared) { const v = s.get(); if (v !== s.last) { s.last = v; ws.send(JSON.stringify({ sh: { k, v } })) } }
       }
-      if (ws?.readyState === 1 && (sendT += dt) > 0.066) { sendT = 0; ws.send(JSON.stringify({ sm: state.smollHost ? state.smollOut : undefined, x: p.x, y: p.y, z: p.z, yaw: p.yaw, name, sit: state.seat?.key ?? '', e: state.myEmote.id, en: state.myEmote.n, c: (p.crouch ?? 0) > 0.5 })) }
+      if (ws?.readyState === 1 && (sendT += dt) > 0.066) {
+        sendT = 0
+        const msg = JSON.stringify({ sm: state.smollHost ? state.smollOut : undefined, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(2), name, sit: state.seat?.key ?? '', e: state.myEmote.id, en: state.myEmote.n, c: (p.crouch ?? 0) > 0.5 })
+        const now = performance.now()
+        if (msg !== lastMsg || now - lastAt > 1000) { lastMsg = msg; lastAt = now; ws.send(msg) } // parado: só 1 msg/s
+      }
       for (const o of others.values()) { // suaviza entre as mensagens
         const k = Math.min(1, dt * 12), px = o.g.position.x, pz = o.g.position.z
         o.g.position.x += (o.x - px) * k; o.g.position.z += (o.z - pz) * k; o.g.position.y += (o.y - o.g.position.y) * k; o.g.rotation.y += (o.yaw - o.g.rotation.y) * k
