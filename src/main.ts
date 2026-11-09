@@ -10,6 +10,7 @@ import { connectNet } from './net'
 import { buildSmoll } from './smoll'
 import { loadInventory, initHeld, updateHeld } from './inventory'
 import { initPhone } from './phone'
+import { initTouch } from './touch'
 import './social'
 import { tv, cssR } from './tv'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -326,6 +327,7 @@ const vr = initVR(renderer, scene, camera, rig)
 renderer.xr.addEventListener('sessionstart', () => tv.vr(true))
 renderer.xr.addEventListener('sessionend', () => { vr.end(); tv.vr(false) })
 initPhone(camera, p)
+initTouch(p, renderer.domElement)
 addEventListener('contextmenu', (e) => e.preventDefault())
 let last = performance.now(), inK = 0 // inK: 0 fora, 1 dentro de casa (suavizado)
 const warm = new THREE.Color(0xffe0bd)
